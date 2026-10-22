@@ -7,6 +7,8 @@ export const IPC = {
   appInfo: 'app:info',
   libraryLoad: 'library:load',
   librarySave: 'library:save',
+  sketchImport: 'sketch:import',
+  sketchRead: 'sketch:read',
 } as const
 
 export type Canceled = { canceled: true }
@@ -38,6 +40,15 @@ export interface UserLibraryFile {
   favoritePoses: string[]
 }
 
+/** A sketch image read by main. hash is 'sha256:<hex>' of the file bytes. */
+export interface SketchFileData {
+  path: string
+  name: string
+  hash: string
+  bytes: Uint8Array
+}
+export type SketchImportResult = SketchFileData | Canceled
+
 export interface PoseLensApi {
   saveScene(req: SceneSaveRequest): Promise<SceneSaveResult>
   loadScene(): Promise<SceneLoadResult>
@@ -46,4 +57,8 @@ export interface PoseLensApi {
   /** null when nothing has been saved yet. Unvalidated JSON. */
   loadLibrary(): Promise<unknown>
   saveLibrary(lib: UserLibraryFile): Promise<void>
+  /** Opens a PNG/JPG picker. */
+  importSketch(): Promise<SketchImportResult>
+  /** Re-reads a previously imported sketch; null when the file is gone or is not a PNG/JPG. */
+  readSketch(path: string): Promise<SketchFileData | null>
 }

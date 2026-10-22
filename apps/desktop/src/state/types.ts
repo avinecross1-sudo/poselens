@@ -14,8 +14,11 @@ import type {
   RootTransform,
   SceneSettings,
   Side,
+  SketchMeta,
+  Vec2,
   Vec3,
 } from '../types/scene'
+import type { SolveResult } from '../solve/cameraSolve'
 import type { BodyGroup } from './bodySliders'
 import type { BodyPreset } from './presets'
 
@@ -25,6 +28,7 @@ export interface Doc {
   body: BodyState
   pose: PoseState
   camera: CameraState
+  sketch: SketchMeta
 }
 export type DocKey = keyof Doc
 
@@ -140,11 +144,24 @@ export interface UiSlice {
   overlays: Overlays
   /** Warnings from the last retarget, IK solve or pose apply. Not saved. */
   poseWarnings: string[]
+  /** Loaded sketch images by hash; the layer shows the one the document's sketch names. */
+  sketchImages: Record<string, SketchImage>
+  sketchView: SketchView
+  cueTool: CueTool
+  /** First horizon point while the second is still to be placed (image space). */
+  cueDraft: Vec2 | null
+  /** Last solve failure or sketch load warning. Not saved. */
+  sketchMessage: string | null
   setActiveCamera: (c: ActiveCamera) => void
   selectJoint: (j: JointName | null) => void
   setIkEnabled: (chain: IkChainId, on: boolean) => void
   setOverlay: (key: keyof Overlays, on: boolean) => void
   setPoseWarnings: (w: string[]) => void
+  cacheSketchImage: (image: SketchImage) => void
+  setSketchView: (v: Partial<SketchView>) => void
+  setCueTool: (t: CueTool) => void
+  setCueDraft: (p: Vec2 | null) => void
+  setSketchMessage: (m: string | null) => void
 }
 
 /** User data that lives outside scenes (persisted by main in the app's userData folder). */
@@ -160,5 +177,45 @@ export interface LibrarySlice {
   setLibrary: (lib: { customPresets: BodyPreset[]; favoritePoses: string[] }) => void
 }
 
-export type Store = HistorySlice & SceneSlice & BodySlice & PoseSlice & CameraSlice & ExportSlice & UiSlice & LibrarySlice
+export interface SketchImage {
+  hash: string
+  name: string
+  /** Object URL for the <img> underlay. */
+  url: string
+  width: number
+  height: number
+}
+
+/** Cue tool currently armed in the viewport. 'move' drags the sketch itself. */
+export type CueTool = 'none' | 'horizon' | 'vp' | 'move'
+
+/** View-only sketch layer settings. Not saved in scenes. */
+export interface SketchView {
+  visible: boolean
+  opacity: number
+  /** Locks the sketch's scale / rotation / position. Cues stay editable. */
+  locked: boolean
+  showCues: boolean
+}
+
+export interface SketchSlice {
+  sketch: SketchMeta
+  /** Records an imported image: sets hash, path and size and clears the previous cues. */
+  importSketch: (image: SketchImage, path: string | null) => void
+  removeSketch: () => void
+  /** Ignored while the sketch is locked. */
+  setSketchAlignment: (a: Partial<SketchMeta['alignment']>, opts?: EditOpts) => void
+  resetSketchAlignment: () => void
+  /** Image-space points. */
+  setHorizon: (h: [Vec2, Vec2] | null, opts?: EditOpts) => void
+  setHorizonPoint: (index: 0 | 1, p: Vec2, opts?: EditOpts) => void
+  addVp: (p: Vec2) => void
+  moveVp: (index: number, p: Vec2, opts?: EditOpts) => void
+  removeVp: (index: number) => void
+  clearCues: () => void
+  /** One undo step that sets pitch, roll and focal and records the solve; the camera stays editable. */
+  solveCameraFromSketch: () => SolveResult
+}
+
+export type Store = HistorySlice & SketchSlice & SceneSlice & BodySlice & PoseSlice & CameraSlice & ExportSlice & UiSlice & LibrarySlice
 

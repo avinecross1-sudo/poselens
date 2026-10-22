@@ -4,7 +4,7 @@ import type { Command, Doc, HistorySlice, Store } from './types'
 /** Oldest commands are dropped past this depth. */
 export const MAX_HISTORY = 200
 
-export const snapshotDoc = (s: Doc): Doc => ({ scene: s.scene, body: s.body, pose: s.pose, camera: s.camera })
+export const snapshotDoc = (s: Doc): Doc => ({ scene: s.scene, body: s.body, pose: s.pose, camera: s.camera, sketch: s.sketch })
 
 const sameDoc = (a: Doc, b: Doc): boolean => JSON.stringify(a) === JSON.stringify(b)
 

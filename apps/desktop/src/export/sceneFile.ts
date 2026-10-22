@@ -7,6 +7,7 @@ import type { BodyState, SceneV1 } from '../types/scene'
 import type { Doc } from '../state/types'
 import { rigOf, stylizeOf } from '../state/rigOf'
 import { retargetPose } from '../solve/retarget'
+import { restoreSketchImage } from './sketchFile'
 
 let versionPromise: Promise<string> | null = null
 const appVersion = (): Promise<string> => (versionPromise ??= window.poselens.appInfo().then((i) => i.version))
@@ -52,7 +53,11 @@ export async function loadScene(opts: { keepBody?: boolean } = {}): Promise<File
     s.replaceDoc(doc)
     appStore.setState({ exportSettings: loaded.exportSettings, sceneName: sceneNameFromPath(res.path), selectedJoint: null })
     s.setPoseWarnings(warnings)
-    if (warnings.length) return { ok: false, message: `Loaded onto current body with warnings: ${warnings.join('; ')}` }
+    s.setCueTool('none')
+    const sketchWarning = await restoreSketchImage()
+    s.setSketchMessage(sketchWarning)
+    if (sketchWarning) warnings.push(sketchWarning)
+    if (warnings.length) return { ok: false, message: `${opts.keepBody ? 'Loaded onto current body' : 'Loaded'} with warnings: ${warnings.join('; ')}` }
     return { ok: true, message: opts.keepBody ? `Loaded ${res.path} onto the current body` : `Loaded ${res.path}` }
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) }

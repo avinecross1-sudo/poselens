@@ -9,6 +9,7 @@ import {
   type PoseState,
   type SceneSettings,
   type Side,
+  type SketchMeta,
 } from '../types/scene'
 import { DEFAULT_SENSOR_HEIGHT_MM } from '../lib/units'
 import { defaultPreset } from './presets'
@@ -64,4 +65,15 @@ export const defaultExport = (): ExportSettings => ({
   preset: 'clean',
   namingTemplate: '{scene}',
   settings: { widthPx: DEFAULT_EXPORT_WIDTH_PX },
+})
+
+export const defaultSketch = (): SketchMeta => ({
+  hash: null,
+  path: null,
+  size: null,
+  alignment: { x: 0, y: 0, scale: 1, rotation: 0 },
+  landmarks: {},
+  horizon: null,
+  vps: [],
+  solve: { settings: {}, confidence: {}, baked: false },
 })

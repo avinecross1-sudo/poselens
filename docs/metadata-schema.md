@@ -63,3 +63,23 @@ Still `schemaVersion: 1`: every Phase 2 field is additive and Phase 1 files load
   User presets live in the app's user library, not in the scene file.
 - `pose.hands` = `{ "L": shape, "R": shape }`, shape one of `relaxed | open | fist | pointing | gripping`.
 - `pose.jointLocks` lists joint names; `pose.ikLocks` lists locked limb chains (`armL`, `armR`, `legL`, `legR`).
+
+## Notes (Phase 3A)
+Still `schemaVersion: 1`: all additions are backwards compatible; older files load with the defaults below.
+- `sketch.size` = `{ "width": px, "height": px }` of the imported image (new; `null` until a sketch is imported).
+- `sketch.path` is the absolute path of the imported file at import time (the image is not copied into
+  the export folder). `sketch.hash` is `sha256:<hex>` of the file. On load the app re-reads `path`, and
+  if the file is missing or its hash differs it keeps the cues and tells the user to import the image again.
+- Cue points (`horizon`, `vps`, later `landmarks`) are in **image space**: `[u, v]` with the origin at the
+  image's top-left, `u` across and `v` down, 0..1 over the image. They may lie outside 0..1 (vanishing
+  points usually do). They move with the sketch when `alignment` changes.
+- `sketch.alignment` = `{ x, y, scale, rotation }` in **frame space**: the sketch is fitted inside the shot
+  frame ("contain"), then scaled by `scale`, rotated by `rotation` radians counter-clockwise about its
+  centre, and offset by `x`, `y`, measured in frame heights (+y up). The frame centre is the principal point.
+- `sketch.vps`: at most 3. `vps[0]` and `vps[1]` are the two orthogonal horizontal vanishing points,
+  `vps[2]` the vertical one. `sketch.horizon` is two points defining the horizon line.
+- `sketch.solve.settings` holds the last camera solve (`pitch`, `roll` in radians, `focalMm`,
+  `focalRangeMm`, `pitchRange`, `focalSolved`, `horizonSource`, `warnings`); `confidence.camera` is
+  green / yellow / red. It is cleared when a cue or the placement changes afterwards. `baked` stays
+  `false`: a solved camera is an ordinary editable camera.
+- Sketch opacity, visibility and lock are view settings and are not saved.

@@ -1,6 +1,8 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { basename, extname, join } from 'node:path'
 import { dialog, type BrowserWindow } from 'electron'
+import type { SketchFileData } from '../src/types/ipc'
 
 const JSON_FILTERS = [{ name: 'PoseLens scene', extensions: ['json'] }]
 
@@ -63,6 +65,34 @@ export async function writeExportFolder(
 export async function readJsonIfExists(path: string): Promise<unknown> {
   try {
     return await readJson(path)
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw e
+  }
+}
+
+const SKETCH_EXTENSIONS = ['.png', '.jpg', '.jpeg']
+/** Sketches are reference drawings; anything larger than this is almost certainly the wrong file. */
+const MAX_SKETCH_BYTES = 64 * 1024 * 1024
+
+export async function pickSketchPath(win: BrowserWindow): Promise<string | null> {
+  const res = await dialog.showOpenDialog(win, {
+    title: 'Import sketch',
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }],
+  })
+  return res.canceled ? null : (res.filePaths[0] ?? null)
+}
+
+/** Reads a PNG/JPG and hashes it. Returns null if the file is missing; throws for other problems. */
+export async function readSketchFile(path: string): Promise<SketchFileData | null> {
+  if (!SKETCH_EXTENSIONS.includes(extname(path).toLowerCase())) throw new Error('Sketches must be PNG or JPG files.')
+  try {
+    const info = await stat(path)
+    if (!info.isFile()) return null
+    if (info.size > MAX_SKETCH_BYTES) throw new Error('That image is larger than 64 MB.')
+    const bytes = await readFile(path)
+    return { path, name: basename(path), hash: 'sha256:' + createHash('sha256').update(bytes).digest('hex'), bytes: new Uint8Array(bytes) }
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
     throw e

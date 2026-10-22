@@ -155,9 +155,19 @@ export interface ExportSettings {
 
 export type ConfidenceLevel = 'green' | 'yellow' | 'red'
 
+/**
+ * Sketch underlay + perspective cues. Cue points (horizon, vps, landmarks) are in IMAGE space:
+ * u,v in 0..1 across the image with the origin at its top-left; they may fall outside 0..1.
+ * vps[0] and vps[1] are the two horizontal vanishing points, vps[2] the vertical one.
+ */
+/** Two horizontal VPs plus one vertical VP (docs/solver-spec.md §1). */
+export const MAX_VPS = 3
+
 export interface SketchMeta {
   hash: string | null
   path: string | null
+  /** Pixel size of the imported image; null until a sketch is imported. */
+  size: { width: number; height: number } | null
   alignment: { x: number; y: number; scale: number; rotation: number }
   landmarks: Record<string, Vec2>
   horizon: [Vec2, Vec2] | null

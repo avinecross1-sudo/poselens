@@ -5,6 +5,7 @@ import { createExportSlice } from './exportSlice'
 import { createHistorySlice } from './historySlice'
 import { createPoseSlice } from './poseSlice'
 import { createSceneSlice } from './sceneSlice'
+import { createSketchSlice } from './sketchSlice'
 import type { Store } from './types'
 import { createUiSlice } from './uiSlice'
 import { createLibrarySlice } from './librarySlice'
@@ -14,6 +15,7 @@ export const createAppStore = () =>
   createStore<Store>()((...a) => ({
     ...createHistorySlice(...a),
     ...createSceneSlice(...a),
+    ...createSketchSlice(...a),
     ...createBodySlice(...a),
     ...createPoseSlice(...a),
     ...createCameraSlice(...a),

@@ -184,3 +184,57 @@
 - Ground-contact warnings are a Phase 2 retarget aid only; full balance (CoM, support polygon) is Phase 4.
 - `.claude/launch.json` and `.claude/vite.renderer.mjs` are local preview helpers (renderer without
   Electron) and are not committed.
+
+## 2026-10-22 — Phase 3A: Sketch Import & Perspective Cues
+
+**Status: complete, awaiting acceptance in Electron.** Build green, 124 vitest tests passing (86 before). Checked in the
+renderer-only preview; the native file dialog (main process) has not been exercised, so Tram should try Import in `npm run dev`.
+
+### What was built
+1. **Sketch import** (`electron/fileIO.ts`, `electron/ipc.ts`, `src/export/sketchFile.ts`): new IPC `sketch:import` (PNG/JPG
+   picker; main reads the file and returns bytes + `sha256`) and `sketch:read` (re-read by path, PNG/JPG only, 64 MB cap).
+   The renderer decodes it into an object URL. Hash, path and pixel size go into metadata.
+2. **Underlay layer** (`src/three/SketchLayer.tsx`): the WebGL canvas is now transparent; the letterbox, frame colour and sketch
+   sit behind it. Opacity, show/hide, lock, scale, rotate, pan (sliders, plus a Move tool that drags it in the viewport). Shown in
+   both cameras; in the shot view it is cropped to the frame. View-only, never in the PNG export.
+3. **Cue tools** (`src/three/CueOverlay.tsx`): two-click horizon, 1–3 vanishing points, all draggable, with edge markers when a VP is
+   off-screen (shrink the sketch to reach far VPs). Esc disarms a tool.
+4. **Camera solve** (`src/solve/cameraSolve.ts`, `solver-spec.md` §1 "as implemented"): roll from the horizon, pitch from the
+   horizon offset, focal from two orthogonal VPs, a suggested range (24–135 mm) with one VP or none, confidence
+   green/yellow/red, and warnings for VPs off the horizon, VPs that cannot be orthogonal, extreme focal (outside 8–300 mm,
+   clamped), a missing horizon, and a vertical VP (third) that disagrees.
+5. **Panels** (`SketchPanel.tsx`, `PerspectivePanel.tsx`): new **Sketch** tab in the left panel with a Sketch section and, next to
+   it, Perspective cues (tools, cue list, Solve camera, last-solve readout with warnings).
+6. **State**: `sketch` slice (cues + alignment + solve record) is part of the undoable document (`Doc.sketch`); image cache, view
+   settings, active tool and messages live in the UI slice. Solving is one undo step covering camera and solve record.
+7. Metadata: `sketch` is now written and read (`size` added; see metadata-schema.md "Phase 3A"). Older files load with defaults.
+   On scene load the sketch image is re-read from its path; a missing or changed file is reported and the cues are kept.
+
+### Acceptance checks
+- Fixture solve: `test/fixtures/synthetic-2pt.json` cues recover the drawing camera (pitch −10°, roll 4°, 28 mm) to better than
+  1e-4° / 1e-3 mm (`test/cameraSolve.test.ts`); ±1% hand-placement error stays within 2° roll, 3° pitch, 25% focal.
+- **Visual match:** the solved camera is applied through the real `applyShotCamera` and Three.js projection: the two box
+  directions land on the placed VPs and every horizontal direction lies on the placed horizon (tests), and in the live preview the
+  projected VPs and the on-screen markers agreed to within 0.001 px.
+- Undo restores the pre-solve camera exactly (deep-equal, plus the whole document); redo re-applies it. The solved camera stays
+  fully editable and later edits undo normally (`test/sketch.test.ts`).
+- vitest covers pitch/roll/focal math (signs, 240 exact camera combinations, range fallback, every warning), coordinate
+  spaces, store actions, and metadata round-trip including old and malformed files.
+
+### Assumptions
+- **No test sketch was supplied, so the fixture is synthetic**: `generate-sketch-fixture.mjs` draws two boxes on a ground grid
+  through a pinhole camera and writes `synthetic-2pt.png` + `.json` (exact cues and truth). Swap in a real sketch any time; nothing
+  depends on this one except its tests.
+- The frame centre is taken as the sketch's optical centre (principal point). Panning or scaling the sketch moves which part of it
+  sits at the centre, which is how a cropped sketch is corrected.
+- The focal formula is `f² = −v1·v2`, not the spec's `sqrt(d1·d2)`; they agree when the horizon is level and through the
+  centre, and only the general form is right otherwise (documented in solver-spec.md).
+- VP order is a convention: VP 1 and VP 2 horizontal, VP 3 vertical.
+- Yaw and camera position are not solved; the solve keeps them. After solving, switch to Shot cam (C) to compare.
+- The sketch image is referenced by path, not copied into the export folder.
+- Sketch opacity, visibility, lock and the active tool are not saved in scenes.
+
+### Stubbed or deferred
+- Landmark marking and the pose/depth solve (Phase 3B) and edit-after-solve (3C).
+- No two-point numeric entry for cues; they are placed and dragged only.
+- Electron main-process import dialog untested here (see status).

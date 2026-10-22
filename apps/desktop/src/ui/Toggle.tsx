@@ -8,7 +8,7 @@ export function Toggle<T extends string>({
   value,
   onChange,
 }: {
-  options: readonly [ToggleOption<T>, ToggleOption<T>]
+  options: readonly ToggleOption<T>[]
   value: T
   onChange: (v: T) => void
 }) {

@@ -7,10 +7,12 @@ import {
   type SceneLoadResult,
   type SceneSaveRequest,
   type SceneSaveResult,
+  type SketchFileData,
+  type SketchImportResult,
   type UserLibraryFile,
 } from '../src/types/ipc'
 import { join } from 'node:path'
-import { pickFolder, pickOpenPath, pickSavePath, readJson, readJsonIfExists, writeExportFolder, writeJson } from './fileIO'
+import { pickFolder, pickOpenPath, pickSavePath, pickSketchPath, readJson, readJsonIfExists, readSketchFile, writeExportFolder, writeJson } from './fileIO'
 
 const LIBRARY_FILE = 'library.json'
 const libraryPath = (): string => join(app.getPath('userData'), LIBRARY_FILE)
@@ -45,6 +47,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.appInfo, (): AppInfo => ({ version: app.getVersion() }))
 
   ipcMain.handle(IPC.libraryLoad, (): Promise<unknown> => readJsonIfExists(libraryPath()))
+
+  ipcMain.handle(IPC.sketchImport, async (): Promise<SketchImportResult> => {
+    const path = await pickSketchPath(win())
+    if (!path) return { canceled: true }
+    const data = await readSketchFile(path)
+    if (!data) throw new Error('That file could not be found.')
+    return data
+  })
+
+  ipcMain.handle(IPC.sketchRead, (_e, path: string): Promise<SketchFileData | null> => readSketchFile(String(path)))
 
   ipcMain.handle(IPC.librarySave, async (_e, lib: UserLibraryFile): Promise<void> => {
     await writeJson(libraryPath(), lib)

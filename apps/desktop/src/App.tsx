@@ -25,7 +25,10 @@ export function App() {
       else if (mod && ((k === 'z' && e.shiftKey) || k === 'y')) s.redo()
       else if (mod && k === 's') void saveScene().then(setStatus)
       else if (mod && k === 'o') void loadScene().then(setStatus)
-      else if (k === 'escape') s.selectJoint(null)
+      else if (k === 'escape') {
+        s.selectJoint(null)
+        s.setCueTool('none')
+      }
       else if (!mod && k === 'c') s.setActiveCamera(s.activeCamera === 'editor' ? 'shot' : 'editor')
       else return
       e.preventDefault()
@@ -37,7 +40,7 @@ export function App() {
   return (
     <div className="grid h-screen grid-cols-[300px_1fr_300px] grid-rows-[1fr_auto]">
       <div className="min-h-0">
-        <LeftPanel />
+        <LeftPanel onResult={setStatus} />
       </div>
       <main className="min-h-0 min-w-0">
         <Viewport />

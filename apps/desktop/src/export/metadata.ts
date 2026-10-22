@@ -1,6 +1,7 @@
 // State <-> SceneV1 (docs/metadata-schema.md). Pure functions: no store, no I/O.
 import {
   BODY_SLIDER_KEYS,
+  MAX_VPS,
   HAND_SHAPES,
   JOINT_NAMES,
   SCHEMA_VERSION,
@@ -9,28 +10,22 @@ import {
   type BodySliders,
   type BodyState,
   type CameraState,
+  type ConfidenceLevel,
   type ExportSettings,
   type JointName,
   type JointRotation,
   type PoseState,
   type SceneV1,
   type SketchMeta,
+  type Vec2,
   type Vec3,
 } from '../types/scene'
-import { defaultBody, defaultCamera, defaultExport, defaultPose, defaultScene } from '../state/defaults'
+import { defaultBody, defaultCamera, defaultExport, defaultPose, defaultScene, defaultSketch } from '../state/defaults'
 import type { Doc } from '../state/types'
 
 export const APP_NAME = 'PoseLens' as const
 
-export const emptySketch = (): SketchMeta => ({
-  hash: null,
-  path: null,
-  alignment: { x: 0, y: 0, scale: 1, rotation: 0 },
-  landmarks: {},
-  horizon: null,
-  vps: [],
-  solve: { settings: {}, confidence: {}, baked: false },
-})
+export const emptySketch = defaultSketch
 
 export const emptyBalance = (): BalanceMeta => ({ com: null, supportPolygon: [], contacts: [], warnings: [] })
 
@@ -50,7 +45,7 @@ export function toSceneV1(doc: Doc, exportSettings: ExportSettings, appVersion: 
     body: clone(doc.body),
     pose: clone(doc.pose),
     camera: { ...clone(doc.camera), aspect },
-    sketch: emptySketch(),
+    sketch: clone(doc.sketch),
     balance: emptyBalance(),
     variants: [],
     export: clone(exportSettings),
@@ -150,6 +145,41 @@ function readCamera(v: unknown): CameraState {
   }
 }
 
+const vec2 = (v: unknown): Vec2 | null =>
+  Array.isArray(v) && v.length === 2 && v.every((x) => typeof x === 'number' && Number.isFinite(x)) ? [v[0] as number, v[1] as number] : null
+
+function readSketch(v: unknown): SketchMeta {
+  const d = defaultSketch()
+  const s = obj(v)
+  const a = obj(s['alignment'])
+  const size = obj(s['size'])
+  const h = Array.isArray(s['horizon']) ? s['horizon'].map(vec2) : []
+  const solve = obj(s['solve'])
+  const level = (x: unknown): x is ConfidenceLevel => x === 'green' || x === 'yellow' || x === 'red'
+  return {
+    hash: typeof s['hash'] === 'string' ? s['hash'] : null,
+    path: typeof s['path'] === 'string' ? s['path'] : null,
+    size:
+      typeof size['width'] === 'number' && typeof size['height'] === 'number' && size['width'] > 0 && size['height'] > 0
+        ? { width: size['width'], height: size['height'] }
+        : null,
+    alignment: {
+      x: num(a['x'], d.alignment.x),
+      y: num(a['y'], d.alignment.y),
+      scale: num(a['scale'], d.alignment.scale) > 0 ? num(a['scale'], d.alignment.scale) : d.alignment.scale,
+      rotation: num(a['rotation'], d.alignment.rotation),
+    },
+    landmarks: Object.fromEntries(Object.entries(obj(s['landmarks'])).flatMap(([k, p]) => (vec2(p) ? [[k, vec2(p) as Vec2]] : []))),
+    horizon: h.length === 2 && h[0] && h[1] ? [h[0], h[1]] : null,
+    vps: Array.isArray(s['vps']) ? s['vps'].map(vec2).filter((p): p is Vec2 => p !== null).slice(0, MAX_VPS) : [],
+    solve: {
+      settings: { ...obj(solve['settings']) },
+      confidence: Object.fromEntries(Object.entries(obj(solve['confidence'])).filter((e): e is [string, ConfidenceLevel] => level(e[1]))),
+      baked: bool(solve['baked'], false),
+    },
+  }
+}
+
 function readExport(v: unknown): ExportSettings {
   const d = defaultExport()
   const e = obj(v)
@@ -181,6 +211,7 @@ export function fromSceneV1(raw: unknown): { doc: Doc; exportSettings: ExportSet
       body: readBody(file['body']),
       pose: readPose(file['pose']),
       camera: readCamera(file['camera']),
+      sketch: readSketch(file['sketch']),
     },
     exportSettings,
   }

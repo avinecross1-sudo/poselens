@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { renderTransparentPng } from '../export/renderPng'
+import { fitRect, SHOT_FRAME_MARGIN_PX, type Rect } from '../lib/frameLayout'
 import { appStore, useStore } from '../state/store'
 import { Toggle } from '../ui/Toggle'
 import { applyShotCamera, CAMERA_NEAR_M, createEditorCamera, createShotCamera } from './cameraRig'
@@ -9,32 +10,14 @@ import { createIkHandles } from './ikHandles'
 import { createJointGizmo } from './jointGizmo'
 import { createMannequin } from './mannequin'
 import { createOverlays } from './overlays'
+import { CueOverlay } from './CueOverlay'
+import { SketchLayer } from './SketchLayer'
 import { ViewportHud } from './ViewportHud'
 import { startSceneSync } from './sceneSync'
 import { setViewportHandle } from './viewportHandle'
 
-/** Gap (CSS px) kept around the shot frame so its edge is visible against the letterbox. */
-const SHOT_FRAME_MARGIN_PX = 24
-const EDITOR_BG = 0x262626
-const SHOT_BG = 0x3a3a3a
 /** Editor view draws the shot frustum out to this multiple of the camera-to-target distance. */
 const FRUSTUM_DISPLAY_DEPTH = 1.3
-
-interface Rect {
-  left: number
-  top: number
-  width: number
-  height: number
-}
-
-/** Largest rect of `ratio` (w/h) centred inside w x h, minus margin. */
-export function fitRect(w: number, h: number, ratio: number, margin: number): Rect {
-  const aw = Math.max(1, w - margin * 2)
-  const ah = Math.max(1, h - margin * 2)
-  const width = aw / ah > ratio ? ah * ratio : aw
-  const height = width / ratio
-  return { left: (w - width) / 2, top: (h - height) / 2, width, height }
-}
 
 export function Viewport() {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -46,9 +29,11 @@ export function Viewport() {
     const host = hostRef.current
     if (!host) return
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(window.devicePixelRatio)
     renderer.autoClear = true
+    // Transparent: the letterbox, frame colour and sketch underlay are drawn behind the canvas (SketchLayer).
+    renderer.setClearColor(0x000000, 0)
     const canvas = renderer.domElement
     canvas.style.position = 'absolute'
     canvas.style.display = 'block'
@@ -135,7 +120,6 @@ export function Viewport() {
       renderer.setSize(Math.max(1, Math.floor(r.width)), Math.max(1, Math.floor(r.height)), false)
       editorCam.aspect = r.width / Math.max(1, r.height)
       editorCam.updateProjectionMatrix()
-      renderer.setClearColor(shot ? SHOT_BG : EDITOR_BG, 1)
     }
 
     let frame = 0
@@ -182,7 +166,9 @@ export function Viewport() {
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-neutral-950">
+      <SketchLayer />
       <div ref={hostRef} className="absolute inset-0" />
+      <CueOverlay />
       <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-3">
         <div className="pointer-events-auto">
           <Toggle
