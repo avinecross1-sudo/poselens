@@ -100,6 +100,6 @@
 - Body asymmetry, locks, stylized override: carried in state/file, no UI or effect yet (Phase 2).
 - Head-unit overlay (Phase 2). No IK, joint locks, or joint limits.
 - electron-builder config and Playwright smoke tests (Phase 4).
-- Export was verified in the renderer with a stubbed IPC bridge; the real Electron folder dialog
-  path was not clicked through in this session.
+- Export was verified in the renderer with a stubbed IPC bridge; Tram then confirmed a real export
+  through the Electron folder dialog works.
 - Renderer bundle is ~1.6 MB unsplit (Three.js); fine for desktop, not optimised.
