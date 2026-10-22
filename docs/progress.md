@@ -108,7 +108,7 @@
 
 ## 2026-10-22 — Phase 2: Body & Pose Depth
 
-**Status: built, awaiting Tram's acceptance.** Build green, 86 vitest tests passing (34 before).
+**Status: complete.** Accepted by Tram on 2026-10-22 (runs in Electron). Build green, 86 vitest tests passing (34 before).
 
 ### What was built
 1. **Slider taxonomy** (`src/state/bodySliders.ts`, `src/three/bodyRig.ts`): 21 sliders in four groups.
