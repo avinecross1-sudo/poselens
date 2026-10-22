@@ -9,6 +9,8 @@ import { createHelpers } from './helpers'
 import { createIkHandles } from './ikHandles'
 import { createJointGizmo } from './jointGizmo'
 import { createMannequin } from './mannequin'
+import { createAnatomyLayer } from './anatomy/anatomyLayer'
+import { startAnatomySync } from './anatomy/anatomySync'
 import { createOverlays } from './overlays'
 import { CueOverlay } from './CueOverlay'
 import { LandmarkOverlay } from './LandmarkOverlay'
@@ -48,6 +50,7 @@ export function Viewport() {
 
     const mannequin = createMannequin()
     scene.add(mannequin.group)
+    const anatomy = createAnatomyLayer(mannequin)
     const overlays = createOverlays(mannequin.nodes.head)
     scene.add(overlays.headUnits)
     const helpers = createHelpers()
@@ -102,6 +105,8 @@ export function Viewport() {
         gizmo.setCamera(activeCam())
       },
     })
+
+    const stopAnatomySync = startAnatomySync(appStore, anatomy)
 
     // In SHOT view the canvas itself is sized to the shot aspect, so picking and the gizmo
     // use the same pixels the shot camera renders.
@@ -160,6 +165,8 @@ export function Viewport() {
       cancelAnimationFrame(frame)
       setViewportHandle(null)
       stopSync()
+      stopAnatomySync()
+      anatomy.dispose()
       gizmo.dispose()
       ikHandles.dispose()
       overlays.dispose()

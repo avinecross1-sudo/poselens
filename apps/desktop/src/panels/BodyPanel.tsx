@@ -18,6 +18,7 @@ import { LockButton } from '../ui/LockButton'
 import { PresetCard } from '../ui/PresetCard'
 import { Section, smallBtn } from '../ui/Section'
 import { Slider } from '../ui/Slider'
+import { Toggle } from '../ui/Toggle'
 
 /** Stylized scale range per axis. */
 const STYLIZE_MIN = 0.5
@@ -37,6 +38,17 @@ export function BodyPanel() {
         <button type="button" className={smallBtn} onClick={a.resetBody} title="Reset every unlocked slider to the preset">
           Reset all
         </button>
+      </div>
+      <div className="flex items-center gap-2 text-xs text-neutral-400" title="How the figure is drawn in the viewport and in exported PNGs">
+        Look
+        <Toggle
+          options={[
+            { value: 'mannequin', label: 'Mannequin' },
+            { value: 'anatomy', label: 'Anatomy' },
+          ]}
+          value={a.figureStyle}
+          onChange={a.setFigureStyle}
+        />
       </div>
       <div className="grid grid-cols-2 gap-1.5">
         {allPresets.map((p) => (

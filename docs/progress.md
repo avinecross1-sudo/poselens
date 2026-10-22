@@ -347,3 +347,34 @@ pass; 166 tests and the build are green.
 - The landmarks used on Tram's example were placed by Claude by eye, including a guess at which side is the figure's left.
 - Sensor height, camera position and look direction are not searched; the solve keeps them (grounding still moves figure and
   camera together).
+
+## Phase 2B — Anatomy look (2026-10-22)
+
+### What was built
+- New "Look: Mannequin / Anatomy" toggle in the Body panel (`figureStyle` in the UI slice; not saved in scenes).
+  The viewport and PNG export draw whichever look is on.
+- `src/three/anatomy/muscles.ts`: a table of 22 blocks (about 40 with left/right copies) in matte study-figure colours:
+  blue ribcage, waist and pelvis; green abdominal panel and biceps; orange deltoids and thighs; purple triceps; salmon
+  forearms and knees; lilac shins with calves; yellow head, hands and feet; joint fillers at elbows, wrists, knees and
+  ankles. Each block is a lathe "spindle" with its own widest point and end shape, authored on the left at the rest
+  body and mirrored. Blocks scale per axis with their bone's segment, so presets and sliders still apply.
+- `anatomyLayer.ts` parents the blocks to the mannequin's bone nodes, hides the grey segments (still pickable), tints the
+  hands and hides plain joint markers. `anatomySync.ts` drives it from the store and is started after the scene sync.
+- Docs: `docs/anatomy-spec.md` (behaviour, spindle maths, frames, slider fitting, block table, colours, limits) and
+  `docs/anatomy-schema.json` (JSON Schema for the block table). `prompts/02b-anatomy-skin.md` records the phase brief.
+- `test/anatomy.test.ts` (8 tests): ids and bones, mirroring, slider response, spindle profile, hide/restore, posing,
+  and schema/code agreement on bones and colour groups.
+
+### History
+- First version: about 60 small écorché-style muscles after a ZBrush anatomy sheet. Tram found it too busy and shared a
+  simpler reference (Sebastian Ramos colour-block figure); the table was replaced with the current large blocks.
+
+### Known limits
+- No skinning: at strongly bent shoulders, hips, elbows and knees the blocks overlap instead of blending.
+- Hands stay the posable mannequin palm and fingers (in the hand colour), so they look blockier than the reference.
+- While Anatomy is on, the confidence heatmap only shows on joint markers (segment tints are hidden).
+- Closest match to the reference at the Heroic preset; Realistic Average is slimmer by design.
+
+### Checks
+- Typecheck and `electron-vite build` pass; the 8 anatomy tests pass. Four poseSolve "extreme poses" tests time out at
+  5 s in the cloud build copy (about 7 s each there); they are unrelated to this phase.

@@ -10,7 +10,7 @@ sketch, marking landmarks, and solving an editable pose + camera.
 - No PSD/layered export — transparent PNG only.
 - No clothing simulation, no animation timeline, no multiplayer.
 - No full auto landmark detection. Landmark solve is user-guided.
-- No imported 3D meshes. Mannequin is built from primitives.
+- No imported 3D meshes. Mannequin is built from primitives. The Anatomy look is procedural too (see below).
 
 ## Stack (locked — do not substitute)
 - Electron (main process) + Vite (renderer build)
@@ -62,6 +62,22 @@ Hierarchy (each node = THREE.Object3D with position/rotation/scale):
 Each limb segment = capsule geometry; joints = small spheres; torso = box/capsule;
 head = sphere; hands/feet = small boxes.
 Body sliders drive bone scale + capsule radius. Presets are recipes of those values.
+
+## Anatomy look (Phase 2B)
+Full spec: `docs/anatomy-spec.md`; block table format: `docs/anatomy-schema.json`.
+A second way to draw the same figure: big, smooth, matte colour blocks in the style of a simplified study figure
+(after Tram's Sebastian Ramos reference): yellow head, hands and feet; blue ribcage and pelvis; green abdomen and biceps;
+orange deltoids and thighs; purple triceps; salmon forearms and knees; lilac shins with a calf bulge. Toggled by `figureStyle` ('mannequin' | 'anatomy',
+UI state, not saved in scenes) from the Body panel; the viewport and PNG export draw whichever look is on.
+- Code lives in `/three/anatomy/`: `muscles.ts` (pure table + fit to the rig), `anatomyLayer.ts` (meshes),
+  `anatomySync.ts` (store subscription, started after `startSceneSync`).
+- About 25 forms per side (see `MUSCLES`). Every form is a lathe "spindle" (widest point and end shape per form), parented to a bone node so it poses rigidly
+  with it. Forms are authored for the left side in rest-body bone-local metres and mirrored to the right.
+- Forms scale per axis with their bone's segment (length and girth), so presets and sliders still apply.
+- The skeleton, joints, IK, solver, picking and metadata are unchanged. While Anatomy is on, the grey segments are
+  hidden (still pickable), hands keep the posable mannequin fingers in the hand colour, and only joint markers that
+  carry information (selected, locked, confidence) are drawn.
+- Known limit: no skinning, so forms overlap rather than blend at strongly bent shoulders, hips, elbows and knees.
 
 ## Head-unit & measurement overlay (Phase 2)
 - One head unit = crown (top of head) to chin. On the sphere head that is 2 × head radius.

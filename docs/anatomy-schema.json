@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "poselens/anatomy-schema.json",
+  "title": "PoseLens Anatomy look: block table",
+  "description": "Format of MUSCLES and MUSCLE_COLORS in apps/desktop/src/three/anatomy/muscles.ts. See docs/anatomy-spec.md. Lengths are rest-body metres (neutral sliders, 1.75 m) in the bone's local frame: +Y up, +X character's left, +Z front.",
+  "type": "object",
+  "required": ["colors", "blocks"],
+  "additionalProperties": false,
+  "properties": {
+    "colors": {
+      "description": "Colour groups (MUSCLE_COLORS): group name -> 24-bit RGB as '#rrggbb' (0xrrggbb in code).",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/colorGroup" },
+      "additionalProperties": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
+    },
+    "blocks": {
+      "description": "Blocks (MUSCLES), authored for the left side.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/block" }
+    }
+  },
+  "$defs": {
+    "vec3": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "positiveVec3": {
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0 },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "bone": {
+      "description": "Bone without side suffix. Central bones make one block (or an L/R pair with mirror: true); side bones always make <id>L and <id>R.",
+      "enum": ["hips", "spine", "chest", "neck", "head", "shoulder", "upperArm", "forearm", "hand", "thigh", "shin", "foot", "toe"]
+    },
+    "colorGroup": {
+      "enum": ["head", "torso", "abdomen", "deltoid", "biceps", "triceps", "forearm", "hand", "thigh", "shin"]
+    },
+    "profile": {
+      "description": "Spindle profile. radius(t) = 0.5 * sin(pi*u)^ends, widest at t = peak.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "peak": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1, "default": 0.5, "description": "Widest point, 0 = -Y end, 1 = +Y end." },
+        "ends": { "type": "number", "exclusiveMinimum": 0, "default": 0.55, "description": "Taper: 0.5 ~ ellipsoid, lower = boxier, 1 = pointed." }
+      }
+    },
+    "block": {
+      "type": "object",
+      "required": ["id", "bone", "color", "center", "size"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*$", "description": "Unique base id; L/R suffixes are added on placement." },
+        "bone": { "$ref": "#/$defs/bone" },
+        "color": { "$ref": "#/$defs/colorGroup" },
+        "center": { "$ref": "#/$defs/vec3", "description": "Block centre in the bone's local frame (m)." },
+        "size": { "$ref": "#/$defs/positiveVec3", "description": "Full extents along the spindle's local X, Y (long axis), Z before rotation (m)." },
+        "rot": { "$ref": "#/$defs/vec3", "default": [0, 0, 0], "description": "XYZ Euler rotation (rad), applied after scale." },
+        "profile": { "$ref": "#/$defs/profile" },
+        "mirror": { "type": "boolean", "default": false, "description": "Central bones only: also emit a mirrored right-side copy (negates center.x, rot.y, rot.z)." }
+      }
+    }
+  }
+}
