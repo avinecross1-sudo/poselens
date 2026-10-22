@@ -15,6 +15,7 @@ export const createUiSlice: StateCreator<Store, [], [], UiSlice> = (set) => ({
   sketchMessage: null,
   activeLandmark: null,
   feetOnGround: true,
+  figureStyle: 'mannequin',
   setActiveCamera: (c) => set({ activeCamera: c }),
   selectJoint: (j) => set({ selectedJoint: j }),
   setIkEnabled: (chain, on) => set((s) => ({ ikEnabled: { ...s.ikEnabled, [chain]: on } })),
@@ -28,5 +29,6 @@ export const createUiSlice: StateCreator<Store, [], [], UiSlice> = (set) => ({
   setActiveLandmark: (id) =>
     set((s) => ({ activeLandmark: id, cueTool: id ? 'landmark' : s.cueTool === 'landmark' ? 'none' : s.cueTool, cueDraft: null })),
   setFeetOnGround: (on) => set({ feetOnGround: on }),
+  setFigureStyle: (figureStyle) => set({ figureStyle }),
   setPoseWarnings: (w) => set((s) => (s.poseWarnings.join('\n') === w.join('\n') ? {} : { poseWarnings: w })),
 })

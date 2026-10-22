@@ -140,6 +140,8 @@ export interface Overlays {
   confidence: boolean
 }
 
+export type FigureStyle = 'mannequin' | 'anatomy'
+
 export interface UiSlice {
   activeCamera: ActiveCamera
   selectedJoint: JointName | null
@@ -160,6 +162,9 @@ export interface UiSlice {
   activeLandmark: LandmarkId | null
   /** Pose solve option: stand the figure on the ground (camera height follows). */
   feetOnGround: boolean
+  /** How the figure is drawn: grey mannequin or colour-coded muscle forms. Applies to the viewport and PNG export. */
+  figureStyle: FigureStyle
+  setFigureStyle: (s: FigureStyle) => void
   setActiveCamera: (c: ActiveCamera) => void
   selectJoint: (j: JointName | null) => void
   setIkEnabled: (chain: IkChainId, on: boolean) => void
