@@ -14,16 +14,21 @@ import { startAnatomySync } from './anatomy/anatomySync'
 import { createOverlays } from './overlays'
 import { CueOverlay } from './CueOverlay'
 import { LandmarkOverlay } from './LandmarkOverlay'
-import { SketchLayer } from './SketchLayer'
+import { NudgeHandles } from './NudgeHandles'
+import { SketchLayer, SketchOverlay } from './SketchLayer'
 import { ViewportHud } from './ViewportHud'
 import { confidenceMaps, startSceneSync } from './sceneSync'
 import { setViewportHandle } from './viewportHandle'
+import { isNudgeJoint } from '../solve/depthNudge'
 
 /** Editor view draws the shot frustum out to this multiple of the camera-to-target distance. */
 const FRUSTUM_DISPLAY_DEPTH = 1.3
+/** The depth-nudge handles sit this far (px) right of and above the selected joint, clear of its rotate gizmo. */
+const NUDGE_ANCHOR_OFFSET_PX: readonly [number, number] = [28, -44]
 
 export function Viewport() {
   const hostRef = useRef<HTMLDivElement>(null)
+  const nudgeAnchorRef = useRef<HTMLDivElement>(null)
   const activeCamera = useStore((s) => s.activeCamera)
   const setActiveCamera = useStore((s) => s.setActiveCamera)
   const selectedJoint = useStore((s) => s.selectedJoint)
@@ -51,6 +56,9 @@ export function Viewport() {
     const mannequin = createMannequin()
     scene.add(mannequin.group)
     const anatomy = createAnatomyLayer(mannequin)
+    const ghost = createMannequin({ ghost: true })
+    ghost.group.visible = false
+    scene.add(ghost.group)
     const overlays = createOverlays(mannequin.nodes.head)
     scene.add(overlays.headUnits)
     const helpers = createHelpers()
@@ -85,6 +93,7 @@ export function Viewport() {
     let ratio = appStore.getState().scene.canvasRatio
     const stopSync = startSceneSync(appStore, {
       mannequin,
+      ghost,
       helpers,
       gizmo,
       overlays,
@@ -111,6 +120,7 @@ export function Viewport() {
     // In SHOT view the canvas itself is sized to the shot aspect, so picking and the gizmo
     // use the same pixels the shot camera renders.
     let lastKey = ''
+    let canvasRect: Rect = { left: 0, top: 0, width: 1, height: 1 }
     const layout = (): void => {
       const w = host.clientWidth
       const h = host.clientHeight
@@ -119,6 +129,7 @@ export function Viewport() {
       const k = `${r.left}|${r.top}|${r.width}|${r.height}|${shot}`
       if (k === lastKey) return
       lastKey = k
+      canvasRect = r
       canvas.style.left = `${r.left}px`
       canvas.style.top = `${r.top}px`
       canvas.style.width = `${r.width}px`
@@ -140,6 +151,35 @@ export function Viewport() {
       ikHandles.update()
       overlays.follow(mannequin.root.position, mannequin.root.rotation.y)
       renderer.render(scene, shot ? shotCam : editorCam)
+      placeNudgeAnchor(shot ? shotCam : editorCam)
+    }
+
+    // The nudge handles follow the selected joint on screen.
+    const anchorPos = new THREE.Vector3()
+    const placeNudgeAnchor = (cam: THREE.Camera): void => {
+      const el = nudgeAnchorRef.current
+      if (!el) return
+      const j = appStore.getState().selectedJoint
+      if (!j || !isNudgeJoint(j)) {
+        el.style.display = 'none'
+        return
+      }
+      const p = mannequin.nodes[j].getWorldPosition(anchorPos).project(cam)
+      if (p.z < -1 || p.z > 1) {
+        el.style.display = 'none'
+        return
+      }
+      el.style.display = 'block'
+      // Kept inside the viewport so the handles never slide under its edge.
+      const x = Math.min(
+        Math.max(0, canvasRect.left + ((p.x + 1) / 2) * canvasRect.width + NUDGE_ANCHOR_OFFSET_PX[0]),
+        Math.max(0, host.clientWidth - el.offsetWidth),
+      )
+      const y = Math.min(
+        Math.max(0, canvasRect.top + ((1 - p.y) / 2) * canvasRect.height + NUDGE_ANCHOR_OFFSET_PX[1]),
+        Math.max(0, host.clientHeight - el.offsetHeight),
+      )
+      el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`
     }
     tick()
 
@@ -153,7 +193,7 @@ export function Viewport() {
             camera: appStore.getState().camera,
             widthPx,
             heightPx,
-            hide: [helpers.group, gizmo.helper, shotFrustum, overlays.headUnits, overlays.gaze, ikHandles.group],
+            hide: [helpers.group, gizmo.helper, shotFrustum, overlays.headUnits, overlays.gaze, ikHandles.group, ghost.group],
           })
         } finally {
           mannequin.setConfidence(...confidenceMaps(appStore.getState()))
@@ -174,6 +214,7 @@ export function Viewport() {
       shotFrustum.dispose()
       helpers.dispose()
       mannequin.dispose()
+      ghost.dispose()
       renderer.dispose()
       canvas.remove()
     }
@@ -183,6 +224,7 @@ export function Viewport() {
     <div className="relative h-full w-full overflow-hidden bg-neutral-950">
       <SketchLayer />
       <div ref={hostRef} className="absolute inset-0" />
+      <SketchOverlay />
       <CueOverlay />
       <LandmarkOverlay />
       <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-3">
@@ -201,6 +243,9 @@ export function Viewport() {
         </span>
       </div>
       <ViewportHud />
+      <div ref={nudgeAnchorRef} className="pointer-events-none absolute left-0 top-0" style={{ display: 'none' }}>
+        <NudgeHandles />
+      </div>
     </div>
   )
 }

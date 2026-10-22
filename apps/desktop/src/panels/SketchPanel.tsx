@@ -68,13 +68,13 @@ export function SketchPanel({ onResult }: { onResult: (r: FileResult) => void })
             <button
               type="button"
               className={chipBtn(tool === 'move')}
-              disabled={view.locked}
+              disabled={view.locked || view.traceLock}
               onClick={() => setTool(tool === 'move' ? 'none' : 'move')}
               title="Drag the sketch in the viewport"
             >
               Move
             </button>
-            <button type="button" className={smallBtn} disabled={view.locked} onClick={resetAlign}>
+            <button type="button" className={smallBtn} disabled={view.locked || view.traceLock} onClick={resetAlign}>
               Reset placement
             </button>
           </div>
@@ -86,7 +86,7 @@ export function SketchPanel({ onResult }: { onResult: (r: FileResult) => void })
             max={MAX_SKETCH_SCALE}
             step={0.01}
             unit="×"
-            disabled={view.locked}
+            disabled={view.locked || view.traceLock}
             onChange={(v, p) => setAlign({ scale: v }, { preview: p })}
             onCommit={endGesture}
           />
@@ -100,7 +100,7 @@ export function SketchPanel({ onResult }: { onResult: (r: FileResult) => void })
             decimals={1}
             toDisplay={radToDeg}
             fromDisplay={degToRad}
-            disabled={view.locked}
+            disabled={view.locked || view.traceLock}
             onChange={(v, p) => setAlign({ rotation: v }, { preview: p })}
             onCommit={endGesture}
           />
@@ -110,7 +110,7 @@ export function SketchPanel({ onResult }: { onResult: (r: FileResult) => void })
             min={-PAN_RANGE}
             max={PAN_RANGE}
             step={0.005}
-            disabled={view.locked}
+            disabled={view.locked || view.traceLock}
             onChange={(v, p) => setAlign({ x: v }, { preview: p })}
             onCommit={endGesture}
           />
@@ -120,7 +120,7 @@ export function SketchPanel({ onResult }: { onResult: (r: FileResult) => void })
             min={-PAN_RANGE}
             max={PAN_RANGE}
             step={0.005}
-            disabled={view.locked}
+            disabled={view.locked || view.traceLock}
             onChange={(v, p) => setAlign({ y: v }, { preview: p })}
             onCommit={endGesture}
           />

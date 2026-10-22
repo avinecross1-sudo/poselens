@@ -8,11 +8,14 @@
 //      analytically and clamped to joint limits, and CCD (8 iterations, limits enforced) polishes the
 //      wrist/ankle when clamping or locks left it short.
 // The result is an ordinary editable pose. Pure math over the rig, no store.
+// Partial re-solve (§5, resolvePart) runs the same stages for one part only, around the current pose and camera;
+// recorded depth nudges (depthNudge.ts) are re-applied after any solve.
 import { Matrix4, Quaternion, Vector2, Vector3 } from 'three'
 import type { Rig } from '../three/bodyRig'
 import { JOINT_NAMES, type CameraState, type JointName, type JointRotation, type PoseState, type RootTransform, type Side, type Vec2, type Vec3 } from '../types/scene'
 import { confidenceFromResidual, GREEN_RESIDUAL_M, YELLOW_RESIDUAL_M, pickByHint, resolveDepth, type Confidence, type DepthCandidate } from './depthResolve'
-import { bodySamples, forwardKinematics, jointPosition, lowestPoint, quatToRotation, type WorldPose } from './fk'
+import { bodySamples, forwardKinematics, jointPosition, lowestPoint, quatToRotation, rootMatrix, type WorldPose } from './fk'
+import { applyNudges } from './depthNudge'
 import { IK_CHAINS, IK_REACH_TOLERANCE_M, solveIk, type IkChainId } from './ik'
 import { clampRotation } from './jointLimits'
 import { LANDMARKS, type DepthHint, type LandmarkId } from './landmarks'
@@ -125,6 +128,38 @@ export const LIMB_JOINTS: Record<LimbId, readonly JointName[]> = {
   legL: ['thighL', 'shinL', 'footL', 'toeL'],
   legR: ['thighR', 'shinR', 'footR', 'toeR'],
 }
+
+/**
+ * What a partial re-solve (solver-spec §5) covers: one limb chain, or the torso (hips, spine, chest, neck, head).
+ * The clavicles belong to the arms (§3: shoulder→upperArm→forearm→hand).
+ */
+export const SOLVE_PARTS = ['torso', 'armL', 'armR', 'legL', 'legR'] as const
+export type SolvePart = (typeof SOLVE_PARTS)[number]
+
+export const PART_LABEL: Record<SolvePart, string> = { torso: 'torso', armL: 'left arm', armR: 'right arm', legL: 'left leg', legR: 'right leg' }
+
+/** Joints each part may rotate. Everything else is left exactly as it was. */
+export const PART_JOINTS: Record<SolvePart, readonly JointName[]> = {
+  torso: ['hips', 'spine', 'chest', 'neck', 'head'],
+  armL: ['shoulderL', 'upperArmL', 'forearmL', 'handL'],
+  armR: ['shoulderR', 'upperArmR', 'forearmR', 'handR'],
+  legL: ['thighL', 'shinL', 'footL', 'toeL'],
+  legR: ['thighR', 'shinR', 'footR', 'toeR'],
+}
+
+/** The part a joint belongs to (shoulders go with their arm). */
+export const partOf = (j: JointName): SolvePart => SOLVE_PARTS.find((p) => PART_JOINTS[p].includes(j)) ?? 'torso'
+
+/** Landmarks a limb part is solved from (mid joint, end joint). */
+const PART_LANDMARKS: Record<IkChainId, readonly [LandmarkId, LandmarkId]> = {
+  armL: ['elbowL', 'wristL'],
+  armR: ['elbowR', 'wristR'],
+  legL: ['kneeL', 'ankleL'],
+  legR: ['kneeR', 'ankleR'],
+}
+
+/** The ground plane (world y, m) a re-solved leg is planted on: the full solve stands the figure on y = 0. */
+const GROUND_Y = 0
 
 export interface PoseSolution {
   pose: PoseState
@@ -329,6 +364,10 @@ function solveAtLens(input: PoseSolveInput): { result: PoseSolveResult; cost: nu
  * better.
  */
 export function solvePose(input: PoseSolveInput): PoseSolveResult {
+  return withNudges(input, solvePoseAnyLens(input), null)
+}
+
+function solvePoseAnyLens(input: PoseSolveInput): PoseSolveResult {
   if (!input.solveFocal) return solveAtLens(input).result
   const logStart = Math.log(input.camera.focal)
   const atFocal = (mm: number): { result: PoseSolveResult; cost: number } => {
@@ -361,11 +400,68 @@ export function solvePose(input: PoseSolveInput): PoseSolveResult {
   }
 }
 
+/**
+ * Partial limb re-solve (solver-spec §5): steps 2–4 for one part only, through the current camera. The root, the
+ * camera, every joint outside the part and every locked joint keep their values; recorded depth nudges on the part
+ * are re-applied. A leg whose foot is on the ground (within FOOT_SNAP_M) is planted again when feetOnGround is on.
+ */
+export function resolvePart(input: PoseSolveInput, part: SolvePart): PoseSolveResult {
+  let ground: StageOpts['ground'] = null
+  if ((input.feetOnGround ?? true) && (part === 'legL' || part === 'legR')) {
+    const side: Side = part === 'legL' ? 'L' : 'R'
+    const samples = bodySamples(input.rig, forwardKinematics(input.rig, input.current.joints, input.current.rootTransform))
+    const low = Math.min(...[...samples[`foot${side}`], ...samples[`toe${side}`]].map((p) => p.y))
+    if (low - GROUND_Y < FOOT_SNAP_M) ground = { y: GROUND_Y, sides: [side] }
+  }
+  const r = stagedSolve(input, { depth: null, ground, part })
+  if (!r.ok) return r
+  const solution: PoseSolution = { ...r.solution, grounded: false, focalSolved: false, camera: input.camera }
+  return withNudges(input, { ok: true, solution }, new Set(PART_JOINTS[part]))
+}
+
+/** Rays of the landmarks through a camera. */
+function landmarkRays(camera: CameraState, landmarks: Partial<Record<LandmarkId, Vec2>>): Partial<Record<LandmarkId, Ray>> {
+  const cam = cameraModel(camera)
+  return Object.fromEntries(Object.entries(landmarks).flatMap(([id, p]) => (p ? [[id, rayThrough(cam, p)]] : [])))
+}
+
+/**
+ * Per-joint and per-limb confidence of any pose against the landmarks (solver-spec §4 thresholds), e.g. after a
+ * depth nudge. `flags` carries the ambiguous / unreachable marks of the last solve, which a pose alone cannot tell.
+ */
+export function scorePose(
+  rig: Rig,
+  pose: Pick<PoseState, 'joints' | 'rootTransform'>,
+  camera: CameraState,
+  landmarks: Partial<Record<LandmarkId, Vec2>>,
+  flags: { ambiguous?: ReadonlySet<JointName>; unreachable?: ReadonlySet<JointName> } = {},
+): { joints: Partial<Record<JointName, JointReport>>; limbs: Partial<Record<LimbId, Confidence>>; cost: number } {
+  return reportFor(rig, pose.joints, pose.rootTransform, landmarkRays(camera, landmarks), flags.ambiguous ?? new Set(), flags.unreachable ?? new Set())
+}
+
+/** Re-applies the recorded depth nudges (all, or those in `only`) to a solve and re-scores it. */
+function withNudges(input: PoseSolveInput, result: PoseSolveResult, only: ReadonlySet<JointName> | null): PoseSolveResult {
+  if (!result.ok) return result
+  const sol = result.solution
+  const nudges = input.current.depthNudges
+  if (!Object.entries(nudges).some(([j, d]) => d !== 0 && (!only || only.has(j as JointName)))) return result
+  const joints = applyNudges({ rig: input.rig, joints: sol.pose.joints, root: sol.pose.rootTransform, camera: sol.camera, locked: input.locked }, nudges, only)
+  const flagged = (key: 'ambiguous' | 'unreachable'): Set<JointName> =>
+    new Set((Object.entries(sol.joints) as [JointName, JointReport | undefined][]).filter(([, r]) => r?.[key]).map(([j]) => j))
+  const report = scorePose(input.rig, { joints, rootTransform: sol.pose.rootTransform }, sol.camera, input.landmarks, {
+    ambiguous: flagged('ambiguous'),
+    unreachable: flagged('unreachable'),
+  })
+  return { ok: true, solution: { ...sol, pose: { ...sol.pose, joints }, joints: report.joints, limbs: report.limbs } }
+}
+
 interface StageOpts {
   /** View depth (m) of the hip centre; null = the size estimate. */
   depth: number | null
   /** Ground plane height and the feet planted on it (snapped, solver-spec §2). */
   ground: { y: number; sides: Side[] } | null
+  /** Solve only this part around the current pose (solver-spec §5); null = the whole figure. */
+  part?: SolvePart | null
 }
 
 interface StageOk {
@@ -389,10 +485,14 @@ export function stagedSolve(input: PoseSolveInput, opts: StageOpts): StageResult
     return p ? rayThrough(cam, p) : null
   }
   const rays = Object.fromEntries((Object.keys(lm) as LandmarkId[]).map((id) => [id, ray(id)])) as Partial<Record<LandmarkId, Ray>>
-  const hipLRay = rays.hipL
-  const hipRRay = rays.hipR
-  if (!hipLRay || !hipRRay || !lm.hipL || !lm.hipR) return { ok: false, reason: 'Mark both hips: the solve starts from them.' }
-  if (!rays.neck && !(rays.shoulderL && rays.shoulderR)) return { ok: false, reason: 'Mark the neck base, or both shoulders, to set the torso.' }
+  const part = opts.part ?? null
+  const solves = (p: SolvePart): boolean => part === null || part === p
+  if (part !== null && part !== 'torso') {
+    const [midId, endId] = PART_LANDMARKS[part]
+    if (!rays[midId] && !rays[endId]) {
+      return { ok: false, reason: `Mark the ${LANDMARKS[midId].label.toLowerCase()} or ${LANDMARKS[endId].label.toLowerCase()} to re-solve the ${PART_LABEL[part]}.` }
+    }
+  }
 
   const joints: Record<JointName, JointRotation> = { ...current.joints }
   const ambiguous = new Set<JointName>()
@@ -414,40 +514,15 @@ export function stagedSolve(input: PoseSolveInput, opts: StageOpts): StageResult
   const ankleHeight = (side: Side): number => rest(`foot${side}`).y
   const toeHeight = (side: Side): number => rest(`toe${side}`).y
 
-  // ================= 1. Root placement (§2) =================
-
-  // Size-based depth: each pair of landmarks with a known rest distance bounds the depth from above
-  // (foreshortening only shortens the drawn length), so the smallest estimates are the most trustworthy.
-  const sizePairs: [LandmarkId, LandmarkId, number][] = [
-    ['hipL', 'hipR', 2 * halfHip],
-    ['shoulderL', 'shoulderR', rest('upperArmL').distanceTo(rest('upperArmR'))],
-    ['head', 'chin', restCrown.distanceTo(restChin)],
-    ['hipL', 'kneeL', restLength(rig, 'shinL')],
-    ['hipR', 'kneeR', restLength(rig, 'shinR')],
-    ['kneeL', 'ankleL', restLength(rig, 'footL')],
-    ['kneeR', 'ankleR', restLength(rig, 'footR')],
-    ['shoulderL', 'elbowL', restLength(rig, 'forearmL')],
-    ['shoulderR', 'elbowR', restLength(rig, 'forearmR')],
-    ['elbowL', 'wristL', restLength(rig, 'handL')],
-    ['elbowR', 'wristR', restLength(rig, 'handR')],
-  ]
-  const hipMid2: Vec2 = [(lm.hipL[0] + lm.hipR[0]) / 2, (lm.hipL[1] + lm.hipR[1]) / 2]
-  const sizeEstimates: number[] = []
-  for (const [a, b, len] of sizePairs) {
-    const pa = lm[a]
-    const pb = lm[b]
-    if (!pa || !pb) continue
-    const d = Math.hypot(pa[0] - pb[0], pa[1] - pb[1])
-    if (d > EPS) sizeEstimates.push((cam.f * len) / d)
+  // A partial re-solve (§5) starts from the current pose: root, hips and everything outside the part stay.
+  let root: RootTransform = current.rootTransform
+  let world = forwardKinematics(rig, joints, root)
+  let hipCenter = mid(prior('thighL'), prior('thighR'))
+  let sizeDepth = viewDepth(cam, hipCenter)
+  const shoulderPts: Partial<Record<Side, Vector3>> = {}
+  const setJoint = (j: JointName, q: Quaternion): void => {
+    if (!locked.has(j)) joints[j] = clampRotation(j, quatToRotation(q))
   }
-  if (lm.neck) {
-    const d = Math.hypot(lm.neck[0] - hipMid2[0], lm.neck[1] - hipMid2[1])
-    const len = rest('neck').distanceTo(mid(rest('thighL'), rest('thighR')))
-    if (d > EPS) sizeEstimates.push((cam.f * len) / d)
-  }
-  sizeEstimates.sort((a, b) => a - b)
-  const sizeDepth = (sizeEstimates.length >= MIN_SIZE_ESTIMATES_FOR_ROBUST ? sizeEstimates[1] : sizeEstimates[0]) ?? null
-  if (sizeDepth === null) return { ok: false, reason: 'The landmarks are on top of each other; spread them over the figure.' }
 
   // Planted feet (grounding pass only): the ankle goes where its ray meets the ground plane.
   const groundAnkle: Partial<Record<Side, Vector3>> = {}
@@ -458,156 +533,183 @@ export function stagedSolve(input: PoseSolveInput, opts: StageOpts): StageResult
   }
   const planted = (['L', 'R'] as const).filter((s) => groundAnkle[s] !== undefined)
 
-  const hipMidRay = rayThrough(cam, hipMid2)
-  const hipCenter = pointAtDepth(cam, hipMidRay, opts.depth ?? sizeDepth)
+  if (solves('torso')) {
+    const hipLRay = rays.hipL
+    const hipRRay = rays.hipR
+    if (!hipLRay || !hipRRay || !lm.hipL || !lm.hipR) return { ok: false, reason: 'Mark both hips: the solve starts from them.' }
+    if (!rays.neck && !(rays.shoulderL && rays.shoulderR)) return { ok: false, reason: 'Mark the neck base, or both shoulders, to set the torso.' }
 
-  // Hip axis: the left hip joint on its ray at half the hip width from the centre (two solutions = turned
-  // left or right by the same amount). Toe directions, then hints, then the previous pose decide.
-  const hipCands = resolveDepth(hipLRay, hipCenter, halfHip).candidates
-  const toeScreen = new Vector2()
-  for (const side of ['L', 'R'] as const) {
-    const a = lm[`ankle${side}`]
-    const t = lm[`toe${side}`]
-    if (a && t) toeScreen.add(new Vector2(t[0] - a[0], t[1] - a[1]))
-  }
-  const forwardOf = (hipL: Vector3, up: Vector3): Vector3 => {
-    const x = unit(hipL.clone().sub(hipCenter))
-    return new Vector3().crossVectors(x, up).normalize()
-  }
-  const screenDir = (from: Vector3, dir: Vector3): Vector2 | null => {
-    const a = project(cam, from)
-    const b = project(cam, from.clone().addScaledVector(dir, DIRECTION_PROBE_M))
-    return a && b ? new Vector2(b[0] - a[0], b[1] - a[1]) : null
-  }
-  const priorHipRel = prior('thighL').sub(mid(prior('thighL'), prior('thighR')))
-  // A right-hip hint is the opposite left-hip hint (the two move in opposite depth directions).
-  const hipHint: DepthHint | undefined = hints.hipL ?? (hints.hipR ? (hints.hipR === 'toward' ? 'away' : 'toward') : undefined)
-  const hipChoices: Choice<DepthCandidate>[] = hinted(hipCands, hipHint).map((c) => {
-    let score = c.residual + PRIOR_WEIGHT * c.point.clone().sub(hipCenter).distanceTo(priorHipRel)
-    // Hip R must land on its own ray.
-    score += distanceToRay(hipRRay, hipCenter.clone().multiplyScalar(2).sub(c.point))
-    if (toeScreen.length() > MIN_TOE_SCREEN_LENGTH) {
-      const fwd = screenDir(hipCenter, forwardOf(c.point, UP))
-      if (fwd && fwd.length() > EPS) score -= FACING_WEIGHT_M * fwd.normalize().dot(toeScreen.clone().normalize())
+    // ================= 1. Root placement (§2) =================
+
+    const hipMid2: Vec2 = [(lm.hipL[0] + lm.hipR[0]) / 2, (lm.hipL[1] + lm.hipR[1]) / 2]
+    if (part === null) {
+      // Size-based depth: each pair of landmarks with a known rest distance bounds the depth from above
+      // (foreshortening only shortens the drawn length), so the smallest estimates are the most trustworthy.
+      const sizePairs: [LandmarkId, LandmarkId, number][] = [
+        ['hipL', 'hipR', 2 * halfHip],
+        ['shoulderL', 'shoulderR', rest('upperArmL').distanceTo(rest('upperArmR'))],
+        ['head', 'chin', restCrown.distanceTo(restChin)],
+        ['hipL', 'kneeL', restLength(rig, 'shinL')],
+        ['hipR', 'kneeR', restLength(rig, 'shinR')],
+        ['kneeL', 'ankleL', restLength(rig, 'footL')],
+        ['kneeR', 'ankleR', restLength(rig, 'footR')],
+        ['shoulderL', 'elbowL', restLength(rig, 'forearmL')],
+        ['shoulderR', 'elbowR', restLength(rig, 'forearmR')],
+        ['elbowL', 'wristL', restLength(rig, 'handL')],
+        ['elbowR', 'wristR', restLength(rig, 'handR')],
+      ]
+      const sizeEstimates: number[] = []
+      for (const [a, b, len] of sizePairs) {
+        const pa = lm[a]
+        const pb = lm[b]
+        if (!pa || !pb) continue
+        const d = Math.hypot(pa[0] - pb[0], pa[1] - pb[1])
+        if (d > EPS) sizeEstimates.push((cam.f * len) / d)
+      }
+      if (lm.neck) {
+        const d = Math.hypot(lm.neck[0] - hipMid2[0], lm.neck[1] - hipMid2[1])
+        const len = rest('neck').distanceTo(mid(rest('thighL'), rest('thighR')))
+        if (d > EPS) sizeEstimates.push((cam.f * len) / d)
+      }
+      sizeEstimates.sort((a, b) => a - b)
+      const estimate = (sizeEstimates.length >= MIN_SIZE_ESTIMATES_FOR_ROBUST ? sizeEstimates[1] : sizeEstimates[0]) ?? null
+      if (estimate === null) return { ok: false, reason: 'The landmarks are on top of each other; spread them over the figure.' }
+      sizeDepth = estimate
+      hipCenter = pointAtDepth(cam, rayThrough(cam, hipMid2), opts.depth ?? sizeDepth)
     }
-    return { value: c, score }
-  })
-  const hipPick = best(hipChoices, (a, b) => a.point.distanceTo(b.point) < EPS)
-  if (!hipPick) return { ok: false, reason: 'The hips could not be placed.' }
-  const hipL3 = hipPick.value.point
-  const hipR3 = hipCenter.clone().multiplyScalar(2).sub(hipL3)
-  if (!hipHint) {
-    flagAmbiguous('hipL', hipPick.ambiguous)
-    flagAmbiguous('hipR', hipPick.ambiguous)
-  }
-  const hipAxis = unit(hipL3.clone().sub(hipR3))
 
-  // ================= 2. Torso =================
+    // Hip axis: the left hip joint on its ray at half the hip width from the centre (two solutions = turned
+    // left or right by the same amount). Toe directions, then hints, then the previous pose decide.
+    const hipCands = resolveDepth(hipLRay, hipCenter, halfHip).candidates
+    const toeScreen = new Vector2()
+    for (const side of ['L', 'R'] as const) {
+      const a = lm[`ankle${side}`]
+      const t = lm[`toe${side}`]
+      if (a && t) toeScreen.add(new Vector2(t[0] - a[0], t[1] - a[1]))
+    }
+    const forwardOf = (hipL: Vector3, up: Vector3): Vector3 => {
+      const x = unit(hipL.clone().sub(hipCenter))
+      return new Vector3().crossVectors(x, up).normalize()
+    }
+    const priorHipRel = prior('thighL').sub(mid(prior('thighL'), prior('thighR')))
+    // A right-hip hint is the opposite left-hip hint (the two move in opposite depth directions).
+    const hipHint: DepthHint | undefined = hints.hipL ?? (hints.hipR ? (hints.hipR === 'toward' ? 'away' : 'toward') : undefined)
+    const hipChoices: Choice<DepthCandidate>[] = hinted(hipCands, hipHint).map((c) => {
+      let score = c.residual + PRIOR_WEIGHT * c.point.clone().sub(hipCenter).distanceTo(priorHipRel)
+      // Hip R must land on its own ray.
+      score += distanceToRay(hipRRay, hipCenter.clone().multiplyScalar(2).sub(c.point))
+      if (toeScreen.length() > MIN_TOE_SCREEN_LENGTH) {
+        const fwd = screenDir(hipCenter, forwardOf(c.point, UP))
+        if (fwd && fwd.length() > EPS) score -= FACING_WEIGHT_M * fwd.normalize().dot(toeScreen.clone().normalize())
+      }
+      return { value: c, score }
+    })
+    const hipPick = best(hipChoices, (a, b) => a.point.distanceTo(b.point) < EPS)
+    if (!hipPick) return { ok: false, reason: 'The hips could not be placed.' }
+    const hipL3 = hipPick.value.point
+    const hipR3 = hipCenter.clone().multiplyScalar(2).sub(hipL3)
+    if (!hipHint) {
+      flagAmbiguous('hipL', hipPick.ambiguous)
+      flagAmbiguous('hipR', hipPick.ambiguous)
+    }
+    const hipAxis = unit(hipL3.clone().sub(hipR3))
 
-  /** Depth-resolve a torso landmark from a 3D anchor, preferring an upright direction. */
-  const torsoPoint = (id: LandmarkId, anchor: Vector3, length: number, preferDir: Vector3): Vector3 | null => {
-    const r = rays[id]
-    if (!r) return null
-    const cands = hinted(resolveDepth(r, anchor, length).candidates, hints[id])
-    const pick = best(
-      cands.map((c) => ({ value: c, score: c.residual + UPRIGHT_WEIGHT_M * (1 - unit(c.point.clone().sub(anchor)).dot(preferDir)) })),
-      (a, b) => a.point.distanceTo(b.point) < EPS,
-    )
-    if (!pick) return null
-    flagAmbiguous(id, pick.ambiguous)
-    return pick.value.point
-  }
+    // ================= 2. Torso =================
 
-  const restHipCenter = mid(rest('thighL'), rest('thighR'))
-  const neck3 = rays.neck ? torsoPoint('neck', hipCenter, rest('neck').distanceTo(restHipCenter), UP) : null
-  const waist3 = torsoPoint('waist', hipCenter, rest('spine').distanceTo(restHipCenter), neck3 ? unit(neck3.clone().sub(hipCenter)) : UP)
+    const restHipCenter = mid(rest('thighL'), rest('thighR'))
+    const neck3 = rays.neck ? torsoPoint('neck', hipCenter, rest('neck').distanceTo(restHipCenter), UP) : null
+    const waist3 = torsoPoint('waist', hipCenter, rest('spine').distanceTo(restHipCenter), neck3 ? unit(neck3.clone().sub(hipCenter)) : UP)
 
-  // Shoulders: both on their rays at the rest distance from the neck (or the hip centre without a neck).
-  const shoulderAnchor = neck3 ?? hipCenter
-  const shoulderAnchorRest = neck3 ? rest('neck') : restHipCenter
-  const shoulderPts: Partial<Record<Side, Vector3>> = {}
-  if (rays.shoulderL && rays.shoulderR) {
-    const candsL = hinted(resolveDepth(rays.shoulderL, shoulderAnchor, rest('upperArmL').distanceTo(shoulderAnchorRest)).candidates, hints.shoulderL)
-    const candsR = hinted(resolveDepth(rays.shoulderR, shoulderAnchor, rest('upperArmR').distanceTo(shoulderAnchorRest)).candidates, hints.shoulderR)
-    const width = rest('upperArmL').distanceTo(rest('upperArmR'))
-    const combos: Choice<[DepthCandidate, DepthCandidate]>[] = []
-    for (const l of candsL) {
-      for (const r of candsR) {
-        const axis = l.point.clone().sub(r.point)
-        const twist = axis.length() > EPS ? 1 - unit(axis).dot(hipAxis) : 1
-        combos.push({ value: [l, r], score: l.residual + r.residual + Math.abs(axis.length() - width) + TWIST_WEIGHT_M * twist })
+    // Shoulders: both on their rays at the rest distance from the neck (or the hip centre without a neck).
+    const shoulderAnchor = neck3 ?? hipCenter
+    const shoulderAnchorRest = neck3 ? rest('neck') : restHipCenter
+    if (rays.shoulderL && rays.shoulderR) {
+      const candsL = hinted(resolveDepth(rays.shoulderL, shoulderAnchor, rest('upperArmL').distanceTo(shoulderAnchorRest)).candidates, hints.shoulderL)
+      const candsR = hinted(resolveDepth(rays.shoulderR, shoulderAnchor, rest('upperArmR').distanceTo(shoulderAnchorRest)).candidates, hints.shoulderR)
+      const width = rest('upperArmL').distanceTo(rest('upperArmR'))
+      const combos: Choice<[DepthCandidate, DepthCandidate]>[] = []
+      for (const l of candsL) {
+        for (const r of candsR) {
+          const axis = l.point.clone().sub(r.point)
+          const twist = axis.length() > EPS ? 1 - unit(axis).dot(hipAxis) : 1
+          combos.push({ value: [l, r], score: l.residual + r.residual + Math.abs(axis.length() - width) + TWIST_WEIGHT_M * twist })
+        }
+      }
+      const pick = best(combos, (a, b) => a[0].point.distanceTo(b[0].point) < EPS && a[1].point.distanceTo(b[1].point) < EPS)
+      if (pick) {
+        shoulderPts.L = pick.value[0].point
+        shoulderPts.R = pick.value[1].point
+        flagAmbiguous('shoulderL', pick.ambiguous)
+        flagAmbiguous('shoulderR', pick.ambiguous)
       }
     }
-    const pick = best(combos, (a, b) => a[0].point.distanceTo(b[0].point) < EPS && a[1].point.distanceTo(b[1].point) < EPS)
-    if (pick) {
-      shoulderPts.L = pick.value[0].point
-      shoulderPts.R = pick.value[1].point
-      flagAmbiguous('shoulderL', pick.ambiguous)
-      flagAmbiguous('shoulderR', pick.ambiguous)
+    const shoulderAxis = shoulderPts.L && shoulderPts.R ? unit(shoulderPts.L.clone().sub(shoulderPts.R)) : hipAxis
+    const torsoTop = neck3 ?? (shoulderPts.L && shoulderPts.R ? mid(shoulderPts.L, shoulderPts.R) : hipCenter.clone().add(UP))
+
+    // Hips frame: X along the hip joints, Y toward the waist (or the top of the torso).
+    const hipsWorld = frameFromYX((waist3 ?? torsoTop).clone().sub(hipCenter), hipAxis)
+    let rootRot: Quaternion
+    if (part === null) {
+      const hipsZ = new Vector3(0, 0, 1).applyQuaternion(hipsWorld)
+      const yaw = Math.atan2(hipsZ.x, hipsZ.z)
+      rootRot = new Quaternion().setFromAxisAngle(Y, yaw)
+      const hipsNode = hipCenter.clone().sub(hipCenterLocal.clone().applyQuaternion(hipsWorld))
+      const rootPos = hipsNode.clone().sub(v3(rig.hips.offset).applyQuaternion(rootRot))
+      root = { position: toVec3(rootPos), rotation: [0, yaw, 0] as Vec3 }
+    } else {
+      // Torso re-solve: the root stays (§5), so the hips turn about their node under it.
+      rootRot = new Quaternion().setFromRotationMatrix(rootMatrix(root))
     }
-  }
-  const shoulderAxis = shoulderPts.L && shoulderPts.R ? unit(shoulderPts.L.clone().sub(shoulderPts.R)) : hipAxis
-  const torsoTop = neck3 ?? (shoulderPts.L && shoulderPts.R ? mid(shoulderPts.L, shoulderPts.R) : hipCenter.clone().add(UP))
+    setJoint('hips', localFrom(rootRot, hipsWorld))
+    world = forwardKinematics(rig, joints, root)
 
-  // Hips frame: X along the hip joints, Y toward the waist (or the top of the torso).
-  const hipsWorld = frameFromYX((waist3 ?? torsoTop).clone().sub(hipCenter), hipAxis)
-  const hipsZ = new Vector3(0, 0, 1).applyQuaternion(hipsWorld)
-  const yaw = Math.atan2(hipsZ.x, hipsZ.z)
-  const rootRot = new Quaternion().setFromAxisAngle(Y, yaw)
-  const hipsNode = hipCenter.clone().sub(hipCenterLocal.clone().applyQuaternion(hipsWorld))
-  const rootPos = hipsNode.clone().sub(v3(rig.hips.offset).applyQuaternion(rootRot))
-  const root = { position: toVec3(rootPos), rotation: [0, yaw, 0] as Vec3 }
-  const setJoint = (j: JointName, q: Quaternion): void => {
-    if (!locked.has(j)) joints[j] = clampRotation(j, quatToRotation(q))
-  }
-  setJoint('hips', localFrom(rootRot, hipsWorld))
-  let world = forwardKinematics(rig, joints, root)
-
-  // Spine + chest share the bend toward the neck; the optional chest landmark sets the split.
-  const chest3 = torsoPoint('chest', jointPosition(world, 'spine'), restLength(rig, 'chest'), unit(torsoTop.clone().sub(hipCenter)))
-  if (neck3 || (shoulderPts.L && shoulderPts.R)) {
-    const hipsW = worldQuat(world, 'hips')
-    const spinePos = jointPosition(world, 'spine')
-    // The top target: the neck base, or the shoulder midpoint taken back to neck-base height.
-    const top = neck3 ?? mid(shoulderPts.L as Vector3, shoulderPts.R as Vector3).add(
-      rest('neck').sub(mid(rest('upperArmL'), rest('upperArmR'))).applyQuaternion(hipsW),
-    )
-    let spineW = hipsW.clone()
-    let chestW = hipsW.clone()
-    for (let i = 0; i < TORSO_ITERATIONS; i++) {
-      const chestPos = spinePos.clone().add(v3(rig.chest.offset).applyQuaternion(spineW))
-      // The neck base sits straight up the chest's Y axis, so the chest aims its Y at it.
-      chestW = frameFromYX(top.clone().sub(chestPos), shoulderAxis)
-      spineW = chest3 ? frameFromYX(chest3.clone().sub(spinePos), hipAxis) : hipsW.clone().slerp(chestW, 0.5)
+    // Spine + chest share the bend toward the neck; the optional chest landmark sets the split.
+    const chest3 = torsoPoint('chest', jointPosition(world, 'spine'), restLength(rig, 'chest'), unit(torsoTop.clone().sub(hipCenter)))
+    if (neck3 || (shoulderPts.L && shoulderPts.R)) {
+      const hipsW = worldQuat(world, 'hips')
+      const spinePos = jointPosition(world, 'spine')
+      // The top target: the neck base, or the shoulder midpoint taken back to neck-base height.
+      const top = neck3 ?? mid(shoulderPts.L as Vector3, shoulderPts.R as Vector3).add(
+        rest('neck').sub(mid(rest('upperArmL'), rest('upperArmR'))).applyQuaternion(hipsW),
+      )
+      let spineW = hipsW.clone()
+      let chestW = hipsW.clone()
+      for (let i = 0; i < TORSO_ITERATIONS; i++) {
+        const chestPos = spinePos.clone().add(v3(rig.chest.offset).applyQuaternion(spineW))
+        // The neck base sits straight up the chest's Y axis, so the chest aims its Y at it.
+        chestW = frameFromYX(top.clone().sub(chestPos), shoulderAxis)
+        spineW = chest3 ? frameFromYX(chest3.clone().sub(spinePos), hipAxis) : hipsW.clone().slerp(chestW, 0.5)
+      }
+      setJoint('spine', localFrom(hipsW, spineW))
+      world = forwardKinematics(rig, joints, root)
+      setJoint('chest', localFrom(worldQuat(world, 'spine'), chestW))
+      world = forwardKinematics(rig, joints, root)
     }
-    setJoint('spine', localFrom(hipsW, spineW))
-    world = forwardKinematics(rig, joints, root)
-    setJoint('chest', localFrom(worldQuat(world, 'spine'), chestW))
-    world = forwardKinematics(rig, joints, root)
+
+    // Neck + head: crown on its ray from the neck base, chin gives the tilt, gaze gives the turn.
+    solveHead()
   }
 
-  // Clavicles: turn each shoulder joint (within its small range) so the arm root meets the shoulder landmark.
-  for (const side of ['L', 'R'] as const) {
-    const target = shoulderPts[side]
-    const j: JointName = `shoulder${side}`
-    if (!target || locked.has(j)) continue
-    const from = worldQuat(world, j)
-    const pos = jointPosition(world, j)
-    const aimed = aimFrom(from, v3(rig[`upperArm${side}`].offset), target.clone().sub(pos))
-    setJoint(j, localFrom(worldQuat(world, 'chest'), aimed))
-    world = forwardKinematics(rig, joints, root)
-  }
-
-  // Neck + head: crown on its ray from the neck base, chin gives the tilt, gaze gives the turn.
-  solveHead()
-
-  // ================= 3. Limbs: IK (§3) + depth resolve (§4) =================
+  // ================= 3. Limbs: clavicles, IK (§3) + depth resolve (§4) =================
 
   for (const side of ['L', 'R'] as const) {
-    solveLimb(side === 'L' ? 'armL' : 'armR', `elbow${side}`, `wrist${side}`, null)
-    solveLimb(side === 'L' ? 'legL' : 'legR', `knee${side}`, `ankle${side}`, groundAnkle[side] ?? null)
-    solveFoot(side)
+    const arm: IkChainId = side === 'L' ? 'armL' : 'armR'
+    const leg: IkChainId = side === 'L' ? 'legL' : 'legR'
+    if (solves(arm)) {
+      // An arm re-solve finds its shoulder from the current neck (the whole solve did it with the torso).
+      if (part === arm) {
+        const pt = shoulderFromNeck(side)
+        if (pt) shoulderPts[side] = pt
+      }
+      aimClavicle(side)
+      solveLimb(arm, `elbow${side}`, `wrist${side}`, null)
+    }
+    if (solves(leg)) {
+      solveLimb(leg, `knee${side}`, `ankle${side}`, groundAnkle[side] ?? null)
+      solveFoot(side)
+    }
   }
+
 
   // ================= Report =================
 
@@ -637,6 +739,55 @@ export function stagedSolve(input: PoseSolveInput, opts: StageOpts): StageResult
   }
 
   // ---- Stage helpers (closures over the solve state) ----
+
+  /** Frame direction of a world direction seen from a point. */
+  function screenDir(from: Vector3, dir: Vector3): Vector2 | null {
+    const a = project(cam, from)
+    const b = project(cam, from.clone().addScaledVector(dir, DIRECTION_PROBE_M))
+    return a && b ? new Vector2(b[0] - a[0], b[1] - a[1]) : null
+  }
+
+  /** Depth-resolve a torso landmark from a 3D anchor, preferring an upright direction. */
+  function torsoPoint(id: LandmarkId, anchor: Vector3, length: number, preferDir: Vector3): Vector3 | null {
+    const r = rays[id]
+    if (!r) return null
+    const cands = hinted(resolveDepth(r, anchor, length).candidates, hints[id])
+    const pick = best(
+      cands.map((c) => ({ value: c, score: c.residual + UPRIGHT_WEIGHT_M * (1 - unit(c.point.clone().sub(anchor)).dot(preferDir)) })),
+      (a, b) => a.point.distanceTo(b.point) < EPS,
+    )
+    if (!pick) return null
+    flagAmbiguous(id, pick.ambiguous)
+    return pick.value.point
+  }
+
+  /** Arm re-solve: the shoulder landmark on its ray at rest distance from the current neck base, nearest the current shoulder. */
+  function shoulderFromNeck(side: Side): Vector3 | null {
+    const id: LandmarkId = `shoulder${side}`
+    const r = rays[id]
+    if (!r) return null
+    const neckPos = jointPosition(world, 'neck')
+    const cands = hinted(resolveDepth(r, neckPos, rest(`upperArm${side}`).distanceTo(rest('neck'))).candidates, hints[id])
+    const pick = best(
+      cands.map((c) => ({ value: c, score: c.residual + PRIOR_WEIGHT * c.point.distanceTo(prior(`upperArm${side}`)) })),
+      (a, b) => a.point.distanceTo(b.point) < EPS,
+    )
+    if (!pick) return null
+    flagAmbiguous(id, pick.ambiguous)
+    return pick.value.point
+  }
+
+  /** Clavicle: turn the shoulder joint (within its small range) so the arm root meets the shoulder landmark. */
+  function aimClavicle(side: Side): void {
+    const target = shoulderPts[side]
+    const j: JointName = `shoulder${side}`
+    if (!target || locked.has(j)) return
+    const from = worldQuat(world, j)
+    const pos = jointPosition(world, j)
+    const aimed = aimFrom(from, v3(rig[`upperArm${side}`].offset), target.clone().sub(pos))
+    setJoint(j, localFrom(worldQuat(world, 'chest'), aimed))
+    world = forwardKinematics(rig, joints, root)
+  }
 
   function solveHead(): void {
     const crownRay = rays.head

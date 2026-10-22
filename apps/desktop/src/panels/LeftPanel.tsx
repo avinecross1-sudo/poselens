@@ -3,6 +3,8 @@ import type { FileResult } from '../export/sceneFile'
 import { useStore } from '../state/store'
 import { Toggle } from '../ui/Toggle'
 import { BodyPanel } from './BodyPanel'
+import { CameraDiagnosticsPanel } from './CameraDiagnosticsPanel'
+import { ComparePanel } from './ComparePanel'
 import { LandmarkPanel } from './LandmarkPanel'
 import { PerspectivePanel } from './PerspectivePanel'
 import { PosePanel } from './PosePanel'
@@ -36,7 +38,9 @@ export function LeftPanel({ onResult }: { onResult: (r: FileResult) => void }) {
         {tab === 'sketch' && (
           <div className="space-y-3">
             <SketchPanel onResult={onResult} />
+            <ComparePanel />
             <PerspectivePanel />
+            <CameraDiagnosticsPanel />
             <LandmarkPanel />
           </div>
         )}

@@ -91,3 +91,25 @@ Algorithm: CCD (Cyclic Coordinate Descent), 8 iterations max.
   depth-resolved instead of snapped to the ground plane.
 - When holding the drawn elbow/knee leaves the wrist/ankle more than 8 cm out of reach, CCD may move the whole limb,
   and the result that lands both joints closer to their rays is kept.
+
+### §5 as implemented (Phase 3C, `src/solve/poseSolve.ts` `resolvePart`, `src/solve/depthNudge.ts`)
+- **Parts**: `torso` (hips, spine, chest, neck, head), `armL`/`armR` (clavicle, upper arm, forearm, hand), `legL`/`legR`
+  (thigh, shin, foot, toe). Every joint belongs to exactly one part; the clavicles go with the arms (§3 chain).
+- The staged solve runs with a part scope, through the current camera and around the current pose: no depth or lens
+  search, no grounding move. The root and the camera are never changed; joints outside the part are copied unchanged;
+  locked joints keep their rotations (as in the full solve).
+  - Arm: the shoulder landmark is depth-resolved from the current neck base (nearest the current shoulder on ties), the
+    clavicle aims at it, then §3/§4 for the elbow and wrist as in the full solve.
+  - Leg: §3/§4 for knee and ankle, then the foot from the toes. With "Feet on the ground" on, a foot that is already within
+    `FOOT_SNAP_M` of the ground plane (y = 0) is planted again (§2 snap).
+  - Torso: the hip axis and the torso landmarks are resolved around the current hip centre; the hips turn under the
+    fixed root, then spine, chest, neck and head as in the full solve. Arms and legs keep their local rotations and move
+    with the torso.
+- Confidence is re-scored for the whole figure afterwards. Ambiguous / unreachable flags inside the part come from the
+  re-solve, outside it from the last full solve.
+- **Depth nudges** (`depthNudge.ts`): elbow/knee swing about the shoulder–wrist (hip–ankle) line (closed-form angle,
+  at most 30° per nudge), the wrist staying put; a nearly straight limb (bend < 25°), or what the capped swing cannot
+  reach, is made up by tipping the upper bone. Wrist/ankle slide along their own camera ray (CCD IK, §3), so they stay
+  on the drawing. The head turns the neck. Every rotation is clamped to its joint limits; the depth change actually
+  made is recorded in `pose.depthNudges`. Nudges are re-applied (mid joints first) after a full solve and after a
+  re-solve of their part, and they lower the confidence when they push a joint off its landmark ray.

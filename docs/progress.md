@@ -378,3 +378,80 @@ pass; 166 tests and the build are green.
 ### Checks
 - Typecheck and `electron-vite build` pass; the 8 anatomy tests pass. Four poseSolve "extreme poses" tests time out at
   5 s in the cloud build copy (about 7 s each there); they are unrelated to this phase.
+## 2026-10-23 — Phase 3C: Edit after solve
+
+**Status: complete, accepted by Tram 2026-10-22.** `npm run typecheck`, `npm run build` and `npm test`
+green: 193 vitest tests passing (166 before); 201 after rebasing onto main with Phase 2B. Checked by hand in the renderer-only preview (fixture stick-figure sketch:
+nudge handles and ghost, part re-solve, compare overlay with difference tint, diagnostics, trace lock, bake); no console errors.
+
+### What was built
+1. **Sketch compare mode** (`src/panels/ComparePanel.tsx`, `src/three/SketchLayer.tsx`): new Compare section in the Sketch tab.
+   Overlay draws the sketch over the mannequin instead of under it (clicks still reach the joints); Difference tint inverts the
+   paper to black, colours the lines and difference-blends them so lines stand out in a contrasting colour where they cross the
+   figure; opacity slider; **Trace lock** freezes the shot camera (all camera setters, Reset) and the sketch placement and switches
+   to the shot view, while posing stays free. The camera panel shows a banner with Unlock while it is on. View-only, not saved.
+2. **Partial limb re-solve** (`resolvePart` in `src/solve/poseSolve.ts`, solver-spec "§5 as implemented"): the staged solve
+   takes a part scope (torso, L/R arm, L/R leg) and re-runs §2–4 for that part only, through the current camera. Root, camera,
+   every other joint and locked joints are kept. Buttons in the landmark panel (with each part's confidence dot) and
+   "Re-solve <part> from the sketch" in the selected-joint panel. One undo step.
+3. **Depth nudge handles** (`src/solve/depthNudge.ts`, `src/three/NudgeHandles.tsx`): selecting an elbow, wrist, knee, ankle or
+   the head shows cyan handles beside it in the viewport: Near / Far steps (2 cm) and a grip to drag (left nearer, right
+   farther). Hovering a step shows the limb where it would go as a ghost; while dragging, the ghost shows where it started.
+   Same controls in the selected-joint panel, plus Clear. Bone lengths and joint limits are kept. Each nudge re-scores the
+   solve confidence (joint colours, limb chips, review list) and is recorded in `pose.depthNudges`; a drag is one undo step.
+4. **Camera diagnostics panel** (`src/solve/cameraDiagnostics.ts`, `src/panels/CameraDiagnosticsPanel.tsx`): overall confidence,
+   focal length and where it came from (vanishing points / found from the figure / not fixed), the solved or suggested range,
+   the shot camera's focal, pitch and roll; the cue warnings from the camera solve; and consistency checks: focal outside the VP
+   range, focal / pitch / roll changed since the solve, a lens found from the figure that disagrees with the cues, three or more
+   red joints, and a lens no cue fixes.
+5. **Bake solve to manual pose** (landmark panel, two-click confirm): keeps pose and camera, clears the solve record
+   (`baked: true`, no confidence), drops the nudges, and removes the solve steps from the undo history. Landmarks and cues stay.
+6. History commands carry a `solve` tag (camera solve, pose solve, part re-solve) so bake can find them.
+7. Metadata: `pose.depthNudges` and `sketch.solve.settings.pose.resolvedParts` are written; `baked` is used (metadata-schema.md
+   "Phase 3C"). Still schema v1; older files load unchanged.
+
+### Acceptance checks (`test/editAfterSolve.test.ts`, 27 tests)
+- **Partial re-solve of one arm leaves every other limb unchanged**: in the store, after disturbing the left arm and locking the
+  hand, re-solving `armL` leaves all 17 joints outside the arm, the locked hand, the root, the hands and the camera deep-equal; the
+  arm is back on the drawing (elbow green). Pure-solver test does the same for every part. One undo step restores the document
+  exactly.
+- **Depth nudge visibly changes depth and updates confidence**: a 12 cm "farther" nudge on the solved left elbow moves it more than
+  5 cm in view depth (equal to the recorded nudge), raises its residual by more than 1 cm and turns it from green to yellow/red;
+  the camera confidence is untouched; undo restores. A bent elbow nudge moves exactly the asked depth with the wrist fixed; wrist
+  and ankle nudges stay within 6 mm of their rays; locked joints refuse; a nudge is re-applied by a re-solve of its limb.
+- **Bake keeps the pose and clears the solve status**: joints, root, camera and landmarks unchanged; `sketch.solve` =
+  `{ settings: {}, confidence: {}, baked: true }`; no solve step left in history; undoing later edits never brings the solve back;
+  a later full solve starts a fresh un-baked record.
+- **Metadata round-trip** stays deep-equal with nudges, re-solved parts and the baked record.
+- Camera diagnostics: every check (VP range, focal/pitch/roll drift, figure lens vs cues, red joints, suggested range, pose-only).
+- Trace lock blocks camera and placement edits but not posing.
+
+### Assumptions
+- **Parts**: "torso" includes neck and head; the clavicles belong to the arms (they are in the §3 arm chain). Re-solving the torso
+  keeps the root fixed (§5 says preserve root), so the hips turn under it and the arms and legs move with the torso.
+- **Re-solve needs a full pose solve first** (it refines one part of it); before that the panel asks for a full solve.
+- **Nudge direction is view depth** along the shot camera's axis, positive = farther, as with the Near / Far depth hints. Which joints
+  move: elbow/knee swing about the shoulder–wrist (hip–ankle) line so the wrist stays put; a nearly straight limb tips instead
+  (the wrist then moves); wrist/ankle slide along their own ray (they stay on the drawing, the elbow/knee gives); the head turns the
+  neck. Nudges are not offered on the hips, spine, chest or shoulders.
+- **Nudges are standing corrections**: they are re-applied after a full solve and after a re-solve of their limb. Clear takes a
+  nudge back out geometrically (positions return to within a few millimetres).
+- A nudge re-scores confidence only when there is a pose solve to score against; without one it just moves the joint.
+- **Bake is not undoable**: undo steps hold whole documents, so stepping back past the solve would restore it. Bake therefore drops
+  every step up to the last solve and rewrites the later ones to the baked record (and clears the redo stack). The button asks for
+  a second click. Bake also clears the nudges, since without a solve they have nothing to be offsets from.
+- After a bake, the next pose solve re-solves the camera from the cues if there are any (their camera solve was cleared too).
+- **Difference tint** is a CSS blend (invert + tint + difference), viewport-only. It is clearest with dark lines on light paper.
+- **Trace lock** freezes the shot camera against the camera controls only; a pose solve may still move camera and figure together
+  (grounding), which keeps the view through the camera unchanged.
+- The ghost and nudge handles use the unscaled body (like the solve); with a stylized override active they can sit slightly off
+  the scaled figure.
+
+### Stubbed or deferred
+- No keyboard shortcuts for nudging. The handles are HTML next to the joint, not 3D arrows (they work the same in both cameras).
+- Electron main-process sketch import still untested here; the preview check used a canvas-drawn sketch loaded through the store.
+
+### Summary
+After a solve the artist can now compare the mannequin against the drawing (overlay, difference tint, trace lock), re-fit one limb or
+the torso without touching the rest, push an elbow, wrist, knee, ankle or the head nearer or farther with a ghost preview while the
+confidence colours update, read why the camera may not match (diagnostics panel), and bake the result into an ordinary manual pose.

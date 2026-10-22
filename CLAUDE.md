@@ -88,6 +88,16 @@ UI state, not saved in scenes) from the Body panel; the viewport and PNG export 
 - Measured from the rest skeleton (not the posed figure), so numbers stay put while posing.
 - Viewport-only toggle. Never appears in exported PNGs.
 
+## Edit after solve (Phase 3C)
+- Partial re-solve (solver-spec §5) changes only the chosen part's joints (torso incl. neck/head; arms incl.
+  clavicles; legs). Root, camera, locked joints and every other limb stay deep-equal.
+- `pose.depthNudges` = { joint: meters }, + = farther along the shot camera's view axis. Re-applied after a full
+  solve and after a re-solve of that limb. Nudges re-score the solve confidence.
+- Solve steps in history carry `solve: true`. Bake removes them (not undoable), clears `sketch.solve` to
+  `{ settings: {}, confidence: {}, baked: true }` and drops the nudges; the pose is kept.
+- Compare overlay, difference tint, trace lock and the nudge ghost are viewport-only and never saved or exported.
+  Trace lock blocks shot-camera and sketch-placement edits.
+
 ## State shape (Zustand, single store, sliced)
 - scene:    canvasRatio, groundPlane, grid, sketchLayer
 - body:     presetId, modifiedFrom, sliders{}, locks{}, asymmetry{}, stylizedOverride

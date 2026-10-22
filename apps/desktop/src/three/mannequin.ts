@@ -21,6 +21,9 @@ const CONFIDENCE_JOINT_COLOR: Record<ConfidenceLevel, number> = { green: 0x22c55
 const CONFIDENCE_SEGMENT_COLOR: Record<ConfidenceLevel, number> = { green: 0xa7d8b4, yellow: 0xe8d98f, red: 0xe6a1a1 }
 
 export type ConfidenceMap = Partial<Record<JointName, ConfidenceLevel>>
+/** Depth-nudge ghost: one see-through colour for the whole figure, drawn over the real one. */
+const GHOST_COLOR = 0x67e8f9
+const GHOST_OPACITY = 0.35
 const Y_AXIS = new THREE.Vector3(0, 1, 0)
 
 // ---- Fingers: visual primitives under each hand node (not joints) ----
@@ -145,6 +148,8 @@ export interface Mannequin {
   setLocked: (joints: ReadonlySet<JointName>) => void
   /** Viewport-only heatmap (null clears it): per-joint colours for the spheres, per-limb tints for the segments. */
   setConfidence: (joints: ConfidenceMap | null, segments: ConfidenceMap | null) => void
+  /** Shows only these joints' segments and spheres (null shows all). For the ghost limb. */
+  showOnly: (joints: ReadonlySet<JointName> | null) => void
   dispose: () => void
 }
 
@@ -172,9 +177,13 @@ function placeSegment(mesh: THREE.Mesh, seg: Segment): void {
   }
 }
 
-export function createMannequin(): Mannequin {
-  const bodyMat = new THREE.MeshStandardMaterial({ color: BODY_COLOR, roughness: 0.65, metalness: 0 })
-  const jointMat = new THREE.MeshStandardMaterial({ color: JOINT_COLOR, roughness: 0.5 })
+/** With `ghost`, every part is drawn in one translucent colour (the depth-nudge preview). */
+export function createMannequin(opts: { ghost?: boolean } = {}): Mannequin {
+  const ghostMat = opts.ghost
+    ? new THREE.MeshBasicMaterial({ color: GHOST_COLOR, transparent: true, opacity: GHOST_OPACITY, depthWrite: false, depthTest: false })
+    : null
+  const bodyMat = ghostMat ?? new THREE.MeshStandardMaterial({ color: BODY_COLOR, roughness: 0.65, metalness: 0 })
+  const jointMat = ghostMat ?? new THREE.MeshStandardMaterial({ color: JOINT_COLOR, roughness: 0.5 })
   const jointSelMat = new THREE.MeshStandardMaterial({ color: JOINT_SELECTED_COLOR, roughness: 0.5, emissive: 0x4a2a00 })
   const jointLockMat = new THREE.MeshStandardMaterial({ color: JOINT_LOCKED_COLOR, roughness: 0.5, emissive: 0x3a0000 })
   const levels = ['green', 'yellow', 'red'] as const
@@ -220,6 +229,7 @@ export function createMannequin(): Mannequin {
   let locked: ReadonlySet<JointName> = new Set()
   let jointConf: ConfidenceMap = {}
   const materialFor = (j: JointName): THREE.Material => {
+    if (ghostMat) return ghostMat
     if (j === selected) return jointSelMat
     if (locked.has(j)) return jointLockMat
     const c = jointConf[j]
@@ -284,7 +294,12 @@ export function createMannequin(): Mannequin {
       for (const j of joints) refreshJoint(j)
     },
 
+    showOnly(joints) {
+      for (const m of pickables) m.visible = !joints || joints.has(m.userData['joint'] as JointName)
+    },
+
     setConfidence(joints, segments) {
+      if (ghostMat) return
       jointConf = joints ?? {}
       for (const def of SKELETON) {
         refreshJoint(def.name)

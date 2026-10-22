@@ -15,6 +15,8 @@ import type { Overlays } from './overlays'
 
 export interface SyncTargets {
   mannequin: Mannequin
+  /** Depth-nudge preview: the limb as it would be, or as it was. */
+  ghost: Mannequin
   helpers: Helpers
   gizmo: JointGizmo
   overlays: Overlays
@@ -44,14 +46,24 @@ export function startSceneSync(store: AppStore, t: SyncTargets): () => void {
     if (bodyChanged) {
       const rig = rigOf(s.body)
       t.mannequin.applyRig(rig)
+      t.ghost.applyRig(rig)
       t.overlays.setMeasurements(measure(rig))
       t.overlays.setHead(rig)
     }
     if (!prev || s.body.stylizedOverride !== prev.body.stylizedOverride) {
       const o = s.body.stylizedOverride
       t.mannequin.applyStylize(o && o.acknowledged ? o.matrix : null)
+      t.ghost.applyStylize(o && o.acknowledged ? o.matrix : null)
     }
     if (!prev || s.pose !== prev.pose) t.mannequin.applyPose(s.pose)
+    if (!prev || s.nudgeGhost !== prev.nudgeGhost) {
+      const g = s.nudgeGhost
+      t.ghost.group.visible = g !== null
+      if (g) {
+        t.ghost.applyPose(g.pose)
+        t.ghost.showOnly(new Set(g.joints))
+      }
+    }
     if (!prev || s.scene !== prev.scene) {
       t.helpers.ground.visible = s.scene.groundPlane
       t.helpers.grid.visible = s.scene.grid

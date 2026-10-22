@@ -6,7 +6,7 @@ export const MAX_HISTORY = 200
 
 export const snapshotDoc = (s: Doc): Doc => ({ scene: s.scene, body: s.body, pose: s.pose, camera: s.camera, sketch: s.sketch })
 
-const sameDoc = (a: Doc, b: Doc): boolean => JSON.stringify(a) === JSON.stringify(b)
+export const sameDoc = (a: Doc, b: Doc): boolean => JSON.stringify(a) === JSON.stringify(b)
 
 const pushCommand = (past: Command[], cmd: Command): Command[] => [...past, cmd].slice(-MAX_HISTORY)
 
@@ -27,7 +27,8 @@ export const createHistorySlice: StateCreator<Store, [], [], HistorySlice> = (se
     set((s) => recipe(s))
     const after = snapshotDoc(get())
     if (sameDoc(before, after)) return
-    set((s) => ({ history: { past: pushCommand(s.history.past, { label, before, after }), future: [], gesture: null } }))
+    const cmd: Command = opts?.solve ? { label, before, after, solve: true } : { label, before, after }
+    set((s) => ({ history: { past: pushCommand(s.history.past, cmd), future: [], gesture: null } }))
   },
 
   endGesture: () => {

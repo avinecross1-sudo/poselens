@@ -31,10 +31,18 @@ export function CameraPanel() {
     <section className="space-y-1">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-neutral-200">Shot camera</h2>
-        <button type="button" className="text-xs text-neutral-400 hover:text-white" onClick={a.resetCamera}>
+        <button type="button" className="text-xs text-neutral-400 hover:text-white disabled:opacity-40" disabled={a.sketchView.traceLock} onClick={a.resetCamera}>
           Reset
         </button>
       </div>
+      {a.sketchView.traceLock && (
+        <p className="text-xs text-amber-300">
+          Trace lock is on (Sketch tab → Compare): the shot camera is frozen so the sketch stays lined up.{' '}
+          <button type="button" className="underline" onClick={() => a.setSketchView({ traceLock: false })}>
+            Unlock
+          </button>
+        </p>
+      )}
       <Slider label="Height" value={c.height} min={-1} max={5} step={0.01} unit="m" onChange={(v, p) => a.setCameraHeight(v, pv(p))} onCommit={a.endGesture} />
       <Slider
         label="Target height"

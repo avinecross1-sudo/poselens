@@ -20,7 +20,8 @@ import type {
 } from '../types/scene'
 import type { SolveResult } from '../solve/cameraSolve'
 import type { DepthHint, LandmarkId } from '../solve/landmarks'
-import type { PoseSolveResult } from '../solve/poseSolve'
+import type { NudgeJoint } from '../solve/depthNudge'
+import type { PoseSolveResult, SolvePart } from '../solve/poseSolve'
 import type { BodyGroup } from './bodySliders'
 import type { BodyPreset } from './presets'
 
@@ -37,12 +38,15 @@ export type DocKey = keyof Doc
 /** preview = live drag update, coalesced into one undo step on endGesture(). */
 export interface EditOpts {
   preview?: boolean
+  /** The step is a solve (camera, pose or partial re-solve); bakeSolve removes it from the history. */
+  solve?: boolean
 }
 
 export interface Command {
   label: string
   before: Doc
   after: Doc
+  solve?: boolean
 }
 
 export interface HistoryState {
@@ -165,6 +169,8 @@ export interface UiSlice {
   /** How the figure is drawn: grey mannequin or colour-coded muscle forms. Applies to the viewport and PNG export. */
   figureStyle: FigureStyle
   setFigureStyle: (s: FigureStyle) => void
+  /** Depth-nudge ghost: the limb as it would be (hovering a handle) or as it was (while dragging). Not saved. */
+  nudgeGhost: NudgeGhost | null
   setActiveCamera: (c: ActiveCamera) => void
   selectJoint: (j: JointName | null) => void
   setIkEnabled: (chain: IkChainId, on: boolean) => void
@@ -178,6 +184,13 @@ export interface UiSlice {
   /** Arms the landmark tool on a landmark (null disarms it). */
   setActiveLandmark: (id: LandmarkId | null) => void
   setFeetOnGround: (on: boolean) => void
+  setNudgeGhost: (g: NudgeGhost | null) => void
+}
+
+export interface NudgeGhost {
+  pose: PoseState
+  /** The limb drawn as a ghost. */
+  joints: JointName[]
 }
 
 /** User data that lives outside scenes (persisted by main in the app's userData folder). */
@@ -212,6 +225,12 @@ export interface SketchView {
   /** Locks the sketch's scale / rotation / position. Cues stay editable. */
   locked: boolean
   showCues: boolean
+  /** Compare mode: the sketch is drawn over the mannequin instead of under it. */
+  compare: boolean
+  /** In compare mode the lines are tinted and difference-blended, so where drawing and mannequin disagree stands out. */
+  difference: boolean
+  /** Freezes the shot camera and the sketch placement so the drawing stays lined up while posing. */
+  traceLock: boolean
 }
 
 export interface SketchSlice {
@@ -241,6 +260,23 @@ export interface SketchSlice {
    * been solved yet. One undo step covers pose, camera and the solve record; the pose stays fully editable.
    */
   solvePoseFromSketch: () => PoseSolveResult
+  /**
+   * Partial re-solve (solver-spec §5): only the part's joints change; root, camera, locked joints and every other
+   * limb are kept. One undo step. Needs a previous pose solve.
+   */
+  resolvePart: (part: SolvePart) => PoseSolveResult
+  /**
+   * Pushes a joint nearer the viewer (delta < 0) or farther (delta > 0) by delta meters of view depth, keeping bone
+   * lengths; records it in pose.depthNudges and re-scores the solve confidence. Returns the depth change made (m).
+   */
+  nudgeJointDepth: (joint: NudgeJoint, delta: number, opts?: EditOpts) => number
+  /** Takes a joint's accumulated nudge back out and removes it from pose.depthNudges. */
+  clearDepthNudge: (joint: NudgeJoint) => void
+  /**
+   * Bakes the solve into a manual pose: pose and camera stay, the solve record is cleared (baked: true), nudges are
+   * dropped and the solve steps leave the undo history. Not undoable. Returns false when there was nothing to bake.
+   */
+  bakeSolve: () => boolean
 }
 
 export type Store = HistorySlice & SketchSlice & SceneSlice & BodySlice & PoseSlice & CameraSlice & ExportSlice & UiSlice & LibrarySlice

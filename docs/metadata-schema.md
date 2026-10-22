@@ -98,3 +98,15 @@ Still `schemaVersion: 1`; older files load with the defaults below.
 - `sketch.solve.confidence` adds green / yellow / red per solved joint (node names, e.g. `forearmL`) and per limb
   (`torso`, `head`, `armL`, `armR`, `legL`, `legR`), beside `camera`. Changing a landmark or hint clears the pose
   entries and keeps `camera`; changing a cue clears everything, as before.
+
+## Notes (Phase 3C)
+Still `schemaVersion: 1`; no new top-level fields, older files load unchanged.
+- `pose.depthNudges` is now written: `{ jointName: meters }` for the joints the artist nudged in depth after a solve
+  (`forearmL/R`, `handL/R`, `shinL/R`, `footL/R`, `head`). Positive = farther from the viewer, along the shot camera's
+  view axis. The joint rotations already include the nudge; the record lets a later solve or partial re-solve of that limb
+  apply it again. Missing or `{}` = no nudges.
+- `sketch.solve.settings.pose.resolvedParts` (new, optional): parts re-solved on their own since the last full pose
+  solve, any of `torso`, `armL`, `armR`, `legL`, `legR`.
+- `sketch.solve.baked: true` now means the artist baked the solve into a manual pose: `settings` and `confidence` are
+  empty, `pose.depthNudges` is `{}`, and the landmarks and cues are kept. A new pose or camera solve writes `baked: false`.
+- Compare mode (overlay, difference tint) and trace lock are view settings and are not saved, like sketch opacity.
