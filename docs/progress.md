@@ -51,6 +51,8 @@
 
 ## 2026-10-22 — Phase 1: Core Studio
 
+**Status: complete.** Accepted by Tram on 2026-10-22 (export confirmed in Electron).
+
 ### What was built
 - Repo: `git init`, npm workspaces root (`/package.json`), app in `apps/desktop` on electron-vite 6
   (Vite 8), Electron 45, React 18, TS 5.9 strict, Three 0.186, Zustand 5, Tailwind 3, vitest 5.
