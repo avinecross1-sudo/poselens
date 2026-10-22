@@ -42,6 +42,8 @@ function poseSolveRecord(sol: PoseSolution, cameraSolved: boolean): Record<strin
     grounded: sol.grounded,
     planted: sol.planted,
     cameraSolved,
+    focalSolved: sol.focalSolved,
+    focalMm: sol.camera.focal,
     residualsCm: Object.fromEntries(joints.map(([j, r]) => [j, Math.round(r.residual * CM_PER_M * 10) / 10])),
     ambiguous: joints.filter(([, r]) => r.ambiguous).map(([j]) => j),
     unreachable: joints.filter(([, r]) => r.unreachable).map(([j]) => j),
@@ -194,6 +196,8 @@ export const createSketchSlice: StateCreator<Store, [], [], SketchSlice> = (_set
           camera = applySolution(camera, cr.solution)
         }
       }
+      const prevFocalSolved = s.sketch.solve.confidence['camera'] !== undefined && s.sketch.solve.settings['focalSolved'] === true
+      const lensFixed = cameraSolution ? cameraSolution.focalSolved : prevFocalSolved
       const rig = rigOf(s.body)
       const result = solvePose({
         rig,
@@ -203,6 +207,8 @@ export const createSketchSlice: StateCreator<Store, [], [], SketchSlice> = (_set
         current: s.pose,
         locked: lockedJoints(s.pose),
         feetOnGround: s.feetOnGround,
+        // Without a lens fixed by two orthogonal VPs, the focal length is found from the figure as well.
+        solveFocal: !lensFixed,
       })
       if (!result.ok) {
         get().setSketchMessage(result.reason)

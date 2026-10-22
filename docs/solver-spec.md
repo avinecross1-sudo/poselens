@@ -82,3 +82,12 @@ Algorithm: CCD (Cyclic Coordinate Descent), 8 iterations max.
   joint. Joints whose two depth choices both fit with no hint are flagged ambiguous for review.
 - Locked joints keep their rotations; hands and depth nudges are kept. The stylized override is not part of the
   solve (the panel says so when it is active).
+- **Lens from the figure (Phase 3B fix).** When no pair of orthogonal VPs fixed the focal length, the whole solve runs
+  over a log-spaced focal grid (10–135 mm, then golden-section refinement) and keeps the focal whose fit has the
+  lowest trimmed residual, with a weak pull (0.5 mm of residual per e-fold) toward the starting focal. Strong
+  perspective (a hand thrust at a 12 mm lens) is recovered reliably; a moderate wide lens is often not identifiable
+  from a figure alone, and then the pose still lines up with the drawing through whichever lens is kept.
+- Worm's-eye views: a ray within 10° of level meets the ground too far off, so planted feet seen that way are
+  depth-resolved instead of snapped to the ground plane.
+- When holding the drawn elbow/knee leaves the wrist/ankle more than 8 cm out of reach, CCD may move the whole limb,
+  and the result that lands both joints closer to their rays is kept.

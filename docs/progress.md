@@ -298,3 +298,36 @@ renderer-only preview with Tram's gesture sketch (landmarks placed by clicking, 
 - Sketch compare mode, partial limb re-solve, depth nudge handles, camera diagnostics panel and bake (Phase 3C).
 - No automatic landmark detection (non-goal).
 - Electron main-process sketch import still untested here; the preview loads the image through the dev server.
+
+## 2026-10-23 — Phase 3B fix: extreme poses and strong perspective
+
+**Status: on branch `fix/extreme-pose-solve`, not pushed.** Build green, 166 vitest tests passing.
+
+### What was wrong
+- Measured on synthetic extreme poses (falling with a hand thrust at the lens, kicks, random poses inside joint limits) through
+  close wide-angle (12–16 mm), steep high-angle and worm's-eye cameras. With the true lens the solve already landed within
+  about 1–8 cm. The failures came from the lens: without perspective cues the solve kept the camera's 50 mm, and wide-angle
+  drawings then came out 10–19 cm wrong on average, with hands and feet off by up to 50 cm.
+- Worm's-eye views also snapped planted feet onto the ground along nearly level rays, which threw the toes off.
+
+### What changed (solver-spec §2–4 "as implemented", last three bullets)
+1. **Lens from the figure** when no orthogonal VP pair fixed it: focal search 10–135 mm, best fit wins; reported as
+   "Lens solved from the figure: N mm" and in `sketch.solve.settings.pose.focalSolved / focalMm`.
+2. **Grazing rays**: planted feet seen within 10° of level are depth-resolved, not snapped.
+3. **IK fallback**: when holding the drawn mid joint leaves the end joint more than 8 cm short, the whole limb may move.
+- Tried and dropped: a whole-body Levenberg–Marquardt refinement after the staged solve. It fitted the rays more tightly but
+  slid into other exact fits, making pose shapes worse (3 → 7.5 cm mean on the standard fixture).
+
+### Acceptance checks (`test/poseSolve.test.ts`, "extreme poses and strong perspective")
+- Tests written first; they failed on the previous solver. 4 cameras × 6 extreme poses with the lens starting at 50 mm:
+  mean joint error < 10 cm, worst < 30 cm, at most one red joint; for the 12 mm close-up the lens must come within 35%.
+- A lens fixed by the cues is kept; the solved lens is reported.
+- Tram's example (`D:\Apps\Test\download.png`, not committed), with 16 landmarks placed by Claude by eye: the lens is solved as
+  12 mm (was stuck at 50), and the falling pose with the hand thrust at the viewer lines up. Two joints stay red
+  (left shoulder, right knee), partly because the left/right reading of that drawing is a guess.
+
+### Known limits
+- A moderate wide lens (16–28 mm at 2–4 m) is often not identifiable from the figure alone; the pose still overlays the drawing.
+  Placing a horizon and two VPs fixes the lens exactly.
+- A solve now takes about 0.3–0.8 s when the lens is searched (about 15 ms with a fixed lens).
+- Falling or flying figures need "Feet on the ground" turned off.

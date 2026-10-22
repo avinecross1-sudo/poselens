@@ -106,6 +106,18 @@ describe('solve pose from sketch (store)', () => {
     expect(Math.abs(lowestPoint(rig, forwardKinematics(rig, s.pose.joints, s.pose.rootTransform)))).toBeLessThan(1e-6)
   })
 
+  it('with no perspective cues, looks for the lens in the figure and records it', () => {
+    const { store, fx } = storeWithFixture()
+    store.getState().replaceDoc({ ...snapshotDoc(store.getState()), camera: { ...fx.camera, focal: 50 } })
+    store.getState().solvePoseFromSketch()
+    const s = store.getState()
+    const rec = s.sketch.solve.settings['pose'] as Record<string, unknown>
+    expect(typeof rec['focalSolved']).toBe('boolean')
+    expect(rec['focalMm']).toBe(s.camera.focal)
+    expect(s.camera.focal).toBeGreaterThanOrEqual(10)
+    expect(s.camera.focal).toBeLessThanOrEqual(135)
+  })
+
   it('also solves the camera from unsolved cues, inside the same undo step', () => {
     const { store } = storeWithFixture()
     store.getState().setHorizon([

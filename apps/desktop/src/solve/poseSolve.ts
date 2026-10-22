@@ -11,7 +11,7 @@
 import { Matrix4, Quaternion, Vector2, Vector3 } from 'three'
 import type { Rig } from '../three/bodyRig'
 import { JOINT_NAMES, type CameraState, type JointName, type JointRotation, type PoseState, type RootTransform, type Side, type Vec2, type Vec3 } from '../types/scene'
-import { confidenceFromResidual, pickByHint, resolveDepth, type Confidence, type DepthCandidate } from './depthResolve'
+import { confidenceFromResidual, GREEN_RESIDUAL_M, YELLOW_RESIDUAL_M, pickByHint, resolveDepth, type Confidence, type DepthCandidate } from './depthResolve'
 import { bodySamples, forwardKinematics, jointPosition, lowestPoint, quatToRotation, type WorldPose } from './fk'
 import { IK_CHAINS, IK_REACH_TOLERANCE_M, solveIk, type IkChainId } from './ik'
 import { clampRotation } from './jointLimits'
@@ -30,6 +30,15 @@ const DEPTH_REFINE_STEPS = 10
 export const DEPTH_FIT_TOLERANCE_M = 0.001
 /** Best-depth residual (m) up to which the drawing counts as consistent with the mannequin (then the far edge is used). */
 export const DEPTH_CONSISTENT_M = 0.005
+/** Focal lengths (mm) searched when the lens is solved from the figure, log-spaced, then refined. */
+export const FOCAL_SEARCH_MM: readonly [number, number] = [10, 135]
+const FOCAL_SEARCH_STEPS = 16
+const FOCAL_REFINE_STEPS = 8
+/**
+ * Weak pull toward the starting focal (m of residual per e-fold change in focal length): a lens is only moved
+ * as far as the drawing clearly asks, so a flat cost (mild perspective) does not wander off to 135 mm.
+ */
+export const FOCAL_PRIOR_M_PER_LOG = 0.0005
 /** Golden ratio, for the golden-section depth refinement. */
 const GOLDEN = (1 + Math.sqrt(5)) / 2
 /** The depth cost ignores the worst 1 in this many landmarks, so one misplaced or impossible mark cannot drag the depth. */
@@ -63,6 +72,12 @@ const FACING_WEIGHT_M = 0.05
  * (rad) the limb's twist is blended toward its natural one (no twist from the parent), fully natural at 0.
  */
 const BEND_PLANE_FULL_RAD = (25 * Math.PI) / 180
+/**
+ * A ray this close to level (sine of its angle to the ground) meets the ground plane too far off for a small
+ * landmark error to stay small (worm's-eye views): planted feet are then depth-resolved instead of snapped.
+ */
+const GRAZING_SIN = Math.sin((10 * Math.PI) / 180)
+const grazing = (r: Ray): boolean => Math.abs(r.dir.y) < GRAZING_SIN
 /** Vectors shorter than this give no usable direction. */
 const EPS = 1e-6
 
@@ -85,6 +100,8 @@ export interface PoseSolveInput {
    * height relative to the current camera.
    */
   feetOnGround?: boolean
+  /** Find the focal length from the figure as well (when no perspective cues fixed it). */
+  solveFocal?: boolean
 }
 
 export interface JointReport {
@@ -116,6 +133,8 @@ export interface PoseSolution {
   limbs: Partial<Record<LimbId, Confidence>>
   /** The figure was stood on the ground plane (camera moved with it, so the view is unchanged). */
   grounded: boolean
+  /** The focal length was found from the figure (solveFocal) and differs from the starting one. */
+  focalSolved: boolean
   /** View depth (m) of the hip centre. */
   depth: number
   /** Feet snapped onto the ground plane. */
@@ -215,9 +234,9 @@ function trimmedMean(values: number[]): number {
  * rigid mannequin exactly; when even the best depth leaves a clear residual, the cost curve is shallow and
  * its far edge means little, so the best-fitting depth itself is taken instead.
  */
-export function solvePose(input: PoseSolveInput): PoseSolveResult {
+function solveAtLens(input: PoseSolveInput): { result: PoseSolveResult; cost: number } {
   const first = stagedSolve(input, { depth: null, ground: null })
-  if (!first.ok) return first
+  if (!first.ok) return { result: first, cost: Infinity }
   const lo = first.sizeDepth * DEPTH_SEARCH_MIN
   const hi = first.sizeDepth * DEPTH_SEARCH_MAX
   const costAt = (depth: number): number => {
@@ -261,10 +280,10 @@ export function solvePose(input: PoseSolveInput): PoseSolveResult {
   }
 
   const free = stagedSolve(input, { depth, ground: null })
-  if (!free.ok) return free
+  if (!free.ok) return { result: free, cost: Infinity }
   const feetOnGround = input.feetOnGround ?? true
   const cam = cameraModel(input.camera)
-  let result = free
+  let result: StageOk = free
   let shift = new Vector3()
   if (feetOnGround) {
     // Feet whose lowest point is within the snap distance of the lowest body point stand on the ground.
@@ -288,13 +307,57 @@ export function solvePose(input: PoseSolveInput): PoseSolveResult {
   // Same view: the look direction is kept and the target sits at the figure's depth.
   const target = camPos.clone().addScaledVector(viewDir(cam), sol.depth)
   return {
-    ok: true,
-    solution: {
-      ...sol,
-      pose: { ...sol.pose, rootTransform: { ...sol.pose.rootTransform, position: toVec3(rootPos) } },
-      grounded: feetOnGround,
-      camera: { ...input.camera, position: toVec3(camPos), target: toVec3(target) },
+    cost: result.cost,
+    result: {
+      ok: true,
+      solution: {
+        ...sol,
+        pose: { ...sol.pose, rootTransform: { ...sol.pose.rootTransform, position: toVec3(rootPos) } },
+        grounded: feetOnGround,
+        focalSolved: false,
+        camera: { ...input.camera, position: toVec3(camPos), target: toVec3(target) },
+      },
     },
+  }
+}
+
+/**
+ * The whole solve. With solveFocal (no perspective cues fixed the lens) the focal length is found from the figure
+ * too: a rigid body only fits a drawing through the right lens, and through a wrong one the landmark residual
+ * rises (a wide-angle hand thrust at the viewer cannot be explained by a 50 mm lens). The full solve runs over a
+ * log-spaced focal grid, then a golden-section refinement; the starting focal is kept unless another fits clearly
+ * better.
+ */
+export function solvePose(input: PoseSolveInput): PoseSolveResult {
+  if (!input.solveFocal) return solveAtLens(input).result
+  const logStart = Math.log(input.camera.focal)
+  const atFocal = (mm: number): { result: PoseSolveResult; cost: number } => {
+    const r = solveAtLens({ ...input, camera: { ...input.camera, focal: mm } })
+    return { result: r.result, cost: r.cost + FOCAL_PRIOR_M_PER_LOG * Math.abs(Math.log(mm) - logStart) }
+  }
+  const start = atFocal(input.camera.focal)
+  if (!start.result.ok) return start.result
+  const logLo = Math.log(FOCAL_SEARCH_MM[0])
+  const logHi = Math.log(FOCAL_SEARCH_MM[1])
+  const grid = Array.from({ length: FOCAL_SEARCH_STEPS + 1 }, (_, i) => logLo + ((logHi - logLo) * i) / FOCAL_SEARCH_STEPS)
+  const costs = grid.map((g) => atFocal(Math.exp(g)).cost)
+  const k = costs.indexOf(Math.min(...costs))
+  let a = grid[Math.max(0, k - 1)] as number
+  let b = grid[Math.min(grid.length - 1, k + 1)] as number
+  for (let i = 0; i < FOCAL_REFINE_STEPS; i++) {
+    const m1 = b - (b - a) / GOLDEN
+    const m2 = a + (b - a) / GOLDEN
+    if (atFocal(Math.exp(m1)).cost <= atFocal(Math.exp(m2)).cost) b = m2
+    else a = m1
+  }
+  const found = atFocal(Math.exp((a + b) / 2))
+  const bestCost = Math.min(found.cost, costs[k] ?? Infinity)
+  const best = found.cost <= bestCost ? found : atFocal(Math.exp(grid[k] as number))
+  if (!best.result.ok || start.cost <= best.cost) return start.result
+  const sol = best.result.solution
+  return {
+    ok: true,
+    solution: { ...sol, focalSolved: true, warnings: [`Lens solved from the figure: ${Math.round(sol.camera.focal)} mm.`, ...sol.warnings] },
   }
 }
 
@@ -305,7 +368,16 @@ interface StageOpts {
   ground: { y: number; sides: Side[] } | null
 }
 
-type StageResult = { ok: true; solution: PoseSolution; cost: number; sizeDepth: number } | { ok: false; reason: string }
+interface StageOk {
+  ok: true
+  solution: PoseSolution
+  cost: number
+  sizeDepth: number
+  rays: Partial<Record<LandmarkId, Ray>>
+  ambiguous: Set<JointName>
+  unreachable: Set<JointName>
+}
+type StageResult = StageOk | { ok: false; reason: string }
 
 /** One staged solve with the figure at a given depth. */
 export function stagedSolve(input: PoseSolveInput, opts: StageOpts): StageResult {
@@ -323,7 +395,6 @@ export function stagedSolve(input: PoseSolveInput, opts: StageOpts): StageResult
   if (!rays.neck && !(rays.shoulderL && rays.shoulderR)) return { ok: false, reason: 'Mark the neck base, or both shoulders, to set the torso.' }
 
   const joints: Record<JointName, JointRotation> = { ...current.joints }
-  const reports: Partial<Record<JointName, JointReport>> = {}
   const ambiguous = new Set<JointName>()
   const unreachable = new Set<JointName>()
   const flagAmbiguous = (id: LandmarkId, isAmbiguous: boolean): void => {
@@ -382,7 +453,7 @@ export function stagedSolve(input: PoseSolveInput, opts: StageOpts): StageResult
   const groundAnkle: Partial<Record<Side, Vector3>> = {}
   for (const side of opts.ground?.sides ?? []) {
     const r = rays[`ankle${side}`]
-    const t = r && opts.ground ? rayPlaneY(r, opts.ground.y + ankleHeight(side)) : null
+    const t = r && opts.ground && !grazing(r) ? rayPlaneY(r, opts.ground.y + ankleHeight(side)) : null
     if (r && t !== null) groundAnkle[side] = r.origin.clone().addScaledVector(r.dir, t)
   }
   const planted = (['L', 'R'] as const).filter((s) => groundAnkle[s] !== undefined)
@@ -540,49 +611,24 @@ export function stagedSolve(input: PoseSolveInput, opts: StageOpts): StageResult
 
   // ================= Report =================
 
-  world = forwardKinematics(rig, joints, root)
-  const pointOf = (id: LandmarkId): Vector3 => {
-    if (id === 'head') return new Vector3(0, headCenterY(rig) + headRadius(rig), 0).applyMatrix4(world.head)
-    if (id === 'chin') return new Vector3(0, headCenterY(rig) - headRadius(rig), 0).applyMatrix4(world.head)
-    return jointPosition(world, LANDMARKS[id].joint)
-  }
-  const own: number[] = []
-  for (const id of Object.keys(rays) as LandmarkId[]) {
-    const r = rays[id]
-    if (!r || id === 'gaze') continue
-    const j = LANDMARKS[id].joint
-    const ownResidual = distanceToRay(r, pointOf(id))
-    own.push(ownResidual)
-    const residual = Math.max(ownResidual, reports[j]?.residual ?? 0)
-    let confidence = confidenceFromResidual(residual)
-    if (unreachable.has(j) && confidence === 'green') confidence = 'yellow'
-    reports[j] = { residual, confidence, ambiguous: ambiguous.has(j), unreachable: unreachable.has(j) }
-  }
-  // The hips node itself is judged by its two hip joints.
-  const hipReports = [reports.thighL, reports.thighR].filter((r): r is JointReport => r !== undefined)
-  if (hipReports.length) {
-    const residual = Math.max(...hipReports.map((r) => r.residual))
-    reports.hips = { residual, confidence: confidenceFromResidual(residual), ambiguous: hipReports.some((r) => r.ambiguous), unreachable: false }
-  }
-  const order: Confidence[] = ['green', 'yellow', 'red']
-  const limbs: Partial<Record<LimbId, Confidence>> = {}
-  for (const id of Object.keys(LIMB_JOINTS) as LimbId[]) {
-    const cs = LIMB_JOINTS[id].map((j) => reports[j]?.confidence).filter((c): c is Confidence => c !== undefined)
-    if (cs.length) limbs[id] = cs.reduce((a, c) => (order.indexOf(c) > order.indexOf(a) ? c : a), 'green')
-  }
+  const report = reportFor(rig, joints, root, rays, ambiguous, unreachable)
 
   if (!lm.head || !lm.chin) warnings.push('No crown and chin marked: the head keeps its previous tilt.')
   for (const side of ['L', 'R'] as const) if (!lm[`toe${side}`]) warnings.push(`No ${side === 'L' ? 'left' : 'right'} toes marked: that foot keeps its previous angle.`)
 
   return {
     ok: true,
-    cost: trimmedMean(own),
+    cost: report.cost,
     sizeDepth,
+    rays,
+    ambiguous,
+    unreachable,
     solution: {
       pose: { ...current, joints, rootTransform: root },
-      joints: reports,
-      limbs,
+      joints: report.joints,
+      limbs: report.limbs,
       grounded: false,
+      focalSolved: false,
       depth: viewDepth(cam, hipCenter),
       planted,
       camera: input.camera,
@@ -739,7 +785,7 @@ export function stagedSolve(input: PoseSolveInput, opts: StageOpts): StageResult
       if (!locked.has(hinge.joint)) joints[hinge.joint] = clampRotation(hinge.joint, rot.hinge)
       world = forwardKinematics(rig, joints, root)
       // The mid joint is where the drawing puts it, so only the hinge may move to reach the end.
-      if (end) polish(chain, end.point, false, [upperJ, PARENT_OF_UPPER[chain]])
+      if (end) polish(chain, end.point, false, [upperJ, PARENT_OF_UPPER[chain]], midRay)
       return
     }
 
@@ -751,10 +797,18 @@ export function stagedSolve(input: PoseSolveInput, opts: StageOpts): StageResult
   }
 
   /** CCD toward the end target (respecting locks, limits and the held joints) when the analytic aim left it short. */
-  function polish(chain: IkChainId, target: Vector3, always = false, hold: JointName[] = []): void {
-    const { effector } = IK_CHAINS[chain]
+  function polish(chain: IkChainId, target: Vector3, always = false, hold: JointName[] = [], midRay: Ray | null = null): void {
+    const { effector, hinge } = IK_CHAINS[chain]
     if (!always && jointPosition(world, effector).distanceTo(target) <= IK_REACH_TOLERANCE_M) return
-    const r = solveIk({ rig, joints, root, chain, target, locked: new Set([...locked, ...hold]) })
+    let r = solveIk({ rig, joints, root, chain, target, locked: new Set([...locked, ...hold]) })
+    // Holding the drawn mid joint can leave the end out of reach (a hinge limit, a slightly misjudged depth).
+    // Then let the whole chain move too, and keep whichever lands the mid and end joints closer to their rays.
+    if (hold.length && r.error > YELLOW_RESIDUAL_M) {
+      const misfit = (js: Record<JointName, JointRotation>, endErr: number): number =>
+        endErr + (midRay ? distanceToRay(midRay, jointPosition(forwardKinematics(rig, js, root), hinge.joint)) : 0)
+      const free = solveIk({ rig, joints, root, chain, target, locked })
+      if (misfit(free.joints, free.error) < misfit(r.joints, r.error)) r = free
+    }
     Object.assign(joints, r.joints)
     world = forwardKinematics(rig, joints, root)
     if (!r.reached) unreachable.add(effector)
@@ -767,7 +821,7 @@ export function stagedSolve(input: PoseSolveInput, opts: StageOpts): StageResult
     const ankle = jointPosition(world, foot)
     const toeOffset = v3(rig[`toe${side}`].offset)
     let toe: Vector3 | null = null
-    const groundT = planted.includes(side) && opts.ground ? rayPlaneY(toeRay, opts.ground.y + toeHeight(side)) : null
+    const groundT = planted.includes(side) && opts.ground && !grazing(toeRay) ? rayPlaneY(toeRay, opts.ground.y + toeHeight(side)) : null
     if (groundT !== null) {
       toe = toeRay.origin.clone().addScaledVector(toeRay.dir, groundT)
     } else {
@@ -812,3 +866,50 @@ const headSphere = (rig: Rig): { center: Vec3; radius: number } => {
 export const headCenterY = (rig: Rig): number => headSphere(rig).center[1]
 export const headRadius = (rig: Rig): number => headSphere(rig).radius
 
+
+/** Point a landmark stands for, in world space: crown and chin on the head sphere, else its joint origin. */
+function landmarkPoint(rig: Rig, world: WorldPose, id: LandmarkId): Vector3 {
+  if (id === 'head') return new Vector3(0, headCenterY(rig) + headRadius(rig), 0).applyMatrix4(world.head)
+  if (id === 'chin') return new Vector3(0, headCenterY(rig) - headRadius(rig), 0).applyMatrix4(world.head)
+  return jointPosition(world, LANDMARKS[id].joint)
+}
+
+/** Per-joint and per-limb confidence for a pose, and the depth/lens search cost (trimmed mean residual). */
+function reportFor(
+  rig: Rig,
+  joints: Record<JointName, JointRotation>,
+  root: RootTransform,
+  rays: Partial<Record<LandmarkId, Ray>>,
+  ambiguous: ReadonlySet<JointName>,
+  unreachable: ReadonlySet<JointName>,
+): { joints: Partial<Record<JointName, JointReport>>; limbs: Partial<Record<LimbId, Confidence>>; cost: number } {
+  const world = forwardKinematics(rig, joints, root)
+  const reports: Partial<Record<JointName, JointReport>> = {}
+  const own: number[] = []
+  for (const id of Object.keys(rays) as LandmarkId[]) {
+    const r = rays[id]
+    if (!r || id === 'gaze') continue
+    const j = LANDMARKS[id].joint
+    const ownResidual = distanceToRay(r, landmarkPoint(rig, world, id))
+    own.push(ownResidual)
+    const residual = Math.max(ownResidual, reports[j]?.residual ?? 0)
+    // An IK target counts as unreachable only while the joint is still clearly off its ray.
+    const stillShort = unreachable.has(j) && residual >= GREEN_RESIDUAL_M
+    let confidence = confidenceFromResidual(residual)
+    if (stillShort && confidence === 'green') confidence = 'yellow'
+    reports[j] = { residual, confidence, ambiguous: ambiguous.has(j), unreachable: stillShort }
+  }
+  // The hips node itself is judged by its two hip joints.
+  const hipReports = [reports.thighL, reports.thighR].filter((r): r is JointReport => r !== undefined)
+  if (hipReports.length) {
+    const residual = Math.max(...hipReports.map((r) => r.residual))
+    reports.hips = { residual, confidence: confidenceFromResidual(residual), ambiguous: hipReports.some((r) => r.ambiguous), unreachable: false }
+  }
+  const order: Confidence[] = ['green', 'yellow', 'red']
+  const limbs: Partial<Record<LimbId, Confidence>> = {}
+  for (const id of Object.keys(LIMB_JOINTS) as LimbId[]) {
+    const cs = LIMB_JOINTS[id].map((j) => reports[j]?.confidence).filter((c): c is Confidence => c !== undefined)
+    if (cs.length) limbs[id] = cs.reduce((a, c) => (order.indexOf(c) > order.indexOf(a) ? c : a), 'green')
+  }
+  return { joints: reports, limbs, cost: trimmedMean(own) }
+}

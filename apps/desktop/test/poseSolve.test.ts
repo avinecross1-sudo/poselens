@@ -9,14 +9,14 @@ import {
   YELLOW_RESIDUAL_M,
 } from '../src/solve/depthResolve'
 import { forwardKinematics, jointPosition, lowestPoint } from '../src/solve/fk'
-import { limitViolations } from '../src/solve/jointLimits'
+import { JOINT_LIMITS, limitViolations } from '../src/solve/jointLimits'
 import { LANDMARKS, nextLandmark, REQUIRED_LANDMARKS } from '../src/solve/landmarks'
 import { LIMB_JOINTS, solvePose, type PoseSolution, type PoseSolveInput } from '../src/solve/poseSolve'
 import { cameraModel, distanceToRay, pointAtDepth, project, rayPlaneY, rayThrough, viewDepth } from '../src/solve/projection'
 import { applyShotCamera } from '../src/three/cameraRig'
 import { defaultPose } from '../src/state/defaults'
-import { JOINT_NAMES, type CameraState, type Vec2 } from '../src/types/scene'
-import { buildFixture, FIXTURE_ASPECT, type PoseFixture } from './poseFixture'
+import { JOINT_NAMES, type CameraState, type JointName, type JointRotation, type Vec2 } from '../src/types/scene'
+import { buildFixture, FIXTURE_ASPECT, type FixtureOpts, type PoseFixture } from './poseFixture'
 
 /** Deterministic pseudo-random numbers (Park–Miller), so failures reproduce. */
 function rng(seed: number): () => number {
@@ -260,6 +260,112 @@ describe('staged pose solve (solver-spec §2–4) on the synthetic fixture', () 
     expect(r.solution.joints.head).toBeUndefined()
     expect(r.solution.warnings.some((w) => w.includes('crown'))).toBe(true)
     expect(errors(fx, r.solution).mean).toBeLessThan(ENVELOPE.mean)
+  })
+})
+
+// ---- Extreme poses and strong perspective (wide lenses, steep high and low angles) ----
+
+const DEG = Math.PI / 180
+
+/** Close wide-angle, steep high-angle and worm's-eye shot cameras, as comic panels use. */
+const EXTREME_CAMERAS: Record<string, Partial<CameraState>> = {
+  wide16: { focal: 16, position: [0.4, 1.3, 1.5], target: [0.2, 0.9, -0.3] },
+  fisheye12: { focal: 12, position: [0.3, 1.1, 0.9], target: [0.2, 0.8, -0.3] },
+  highAngle: { focal: 28, position: [0.6, 4.0, 2.0], target: [0.2, 0.5, -0.3] },
+  wormsEye: { focal: 20, position: [0.5, 0.15, 1.6], target: [0.2, 1.3, -0.3] },
+}
+
+/** Every joint drawn uniformly inside a share of its limit range (seeded), floating off the ground. */
+function randomPose(seed: number): Partial<Record<JointName, JointRotation>> {
+  const r = rng(seed)
+  const out: Partial<Record<JointName, JointRotation>> = {}
+  for (const j of JOINT_NAMES) {
+    if (j === 'hips') continue
+    const share = ['spine', 'chest', 'neck', 'head'].includes(j) ? 0.5 : 0.75
+    const pick = (a: readonly [number, number]): number => (a[0] + a[1]) / 2 + (r() - 0.5) * (a[1] - a[0]) * share
+    const l = JOINT_LIMITS[j]
+    out[j] = { rx: pick(l.rx), ry: pick(l.ry), rz: pick(l.rz) }
+  }
+  return out
+}
+
+/** Like Tram's example: falling backwards in mid-air, one hand thrust at the lens, legs folded. */
+const FALL_REACH: FixtureOpts = {
+  poseId: 'stand-relaxed',
+  rootRotation: [-60 * DEG, 20 * DEG, 10 * DEG],
+  lift: 0.6,
+  joints: {
+    upperArmR: { rx: -95 * DEG, ry: 0, rz: -15 * DEG },
+    forearmR: { rx: -10 * DEG, ry: 0, rz: 0 },
+    upperArmL: { rx: -30 * DEG, ry: 0, rz: 60 * DEG },
+    forearmL: { rx: -100 * DEG, ry: 0, rz: 0 },
+    thighL: { rx: -100 * DEG, ry: 0, rz: 10 * DEG },
+    shinL: { rx: 110 * DEG, ry: 0, rz: 0 },
+    thighR: { rx: -40 * DEG, ry: 0, rz: -10 * DEG },
+    shinR: { rx: 90 * DEG, ry: 0, rz: 0 },
+    neck: { rx: -30 * DEG, ry: 20 * DEG, rz: 0 },
+  },
+}
+
+const EXTREME_POSES: Record<string, FixtureOpts> = {
+  run: { poseId: 'run-1', yawDeg: 25 },
+  kick: { poseId: 'kick', yawDeg: -20 },
+  sit: { poseId: 'sit', yawDeg: 35 },
+  fallReach: FALL_REACH,
+  random5: { poseId: 'stand-relaxed', yawDeg: 40, lift: 0.3, joints: randomPose(5) },
+  random9: { poseId: 'stand-relaxed', yawDeg: -70, lift: 0.3, joints: randomPose(9) },
+}
+
+/**
+ * Extreme envelope (docs/progress.md). With no perspective cues the lens is unknown and starts at 50 mm, as in
+ * the app, and the solve looks for it in the figure. For every camera the pose shape must land with mean joint
+ * error < 10 cm and worst joint < 30 cm, and still sit on the drawing (at most one red joint). Only strong
+ * perspective pins the lens down: there it must come within 35% of the true focal length. A moderate wide lens
+ * is not identifiable from a figure alone (a slightly different lens fits the drawing as well), which is fine:
+ * the pose and the overlay are right either way.
+ */
+const EXTREME = { mean: 0.1, max: 0.3, maxRed: 1, focalRatio: 0.35 }
+/** Cameras whose perspective is strong enough that the lens must be recovered. */
+const STRONG_PERSPECTIVE = new Set(['fisheye12'])
+
+describe('extreme poses and strong perspective', () => {
+  for (const [camName, cam] of Object.entries(EXTREME_CAMERAS)) {
+    it(`${camName}: extreme poses solve with the lens unknown`, () => {
+      const failures: string[] = []
+      for (const [poseName, po] of Object.entries(EXTREME_POSES)) {
+        const fx = buildFixture({ ...po, camera: cam })
+        const airborne = (po.lift ?? 0) > 0
+        const r = solvePose({ ...input(fx), camera: { ...fx.camera, focal: 50 }, solveFocal: true, feetOnGround: !airborne })
+        if (!r.ok) {
+          failures.push(`${poseName}: ${r.reason}`)
+          continue
+        }
+        const e = errors(fx, r.solution)
+        const reds = Object.values(r.solution.joints).filter((j) => j?.confidence === 'red').length
+        const focalErr = Math.abs(r.solution.camera.focal / fx.camera.focal - 1)
+        const lensBad = STRONG_PERSPECTIVE.has(camName) && focalErr >= EXTREME.focalRatio
+        if (e.mean >= EXTREME.mean || e.max >= EXTREME.max || reds > EXTREME.maxRed || lensBad) {
+          failures.push(
+            `${poseName}: mean ${(e.mean * 100).toFixed(1)} cm, max ${(e.max * 100).toFixed(0)} cm, ${reds} red, focal ${r.solution.camera.focal.toFixed(0)} mm (true ${fx.camera.focal})`,
+          )
+        }
+      }
+      expect(failures).toEqual([])
+    })
+  }
+
+  it('keeps a lens that the perspective cues fixed', () => {
+    const fx = buildFixture({ ...FALL_REACH, camera: EXTREME_CAMERAS.wide16 })
+    const r = solvePose({ ...input(fx), solveFocal: false, feetOnGround: false })
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.solution.camera.focal).toBe(16)
+  })
+
+  it('reports the lens it solved', () => {
+    const fx = buildFixture({ ...FALL_REACH, camera: EXTREME_CAMERAS.fisheye12 })
+    const r = solvePose({ ...input(fx), camera: { ...fx.camera, focal: 50 }, solveFocal: true, feetOnGround: false })
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.solution.focalSolved).toBe(true)
   })
 })
 

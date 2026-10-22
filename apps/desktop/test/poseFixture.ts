@@ -9,7 +9,7 @@ import { groundPose } from '../src/solve/retarget'
 import { LANDMARKS, type DepthHint, type LandmarkId } from '../src/solve/landmarks'
 import { defaultBody, defaultPose } from '../src/state/defaults'
 import { getLibraryPose } from '../src/state/poseLibrary'
-import type { CameraState, JointName, PoseState, Vec2, Vec3 } from '../src/types/scene'
+import type { CameraState, JointName, JointRotation, PoseState, Vec2, Vec3 } from '../src/types/scene'
 
 export const FIXTURE_ASPECT = 2 / 3
 
@@ -44,14 +44,30 @@ const ANCHOR: Partial<Record<LandmarkId, LandmarkId | 'hipCenter'>> = {
   toeR: 'ankleR',
 }
 
-export function buildFixture(opts: { poseId?: string; yawDeg?: number; camera?: Partial<CameraState> } = {}): PoseFixture {
+export interface FixtureOpts {
+  poseId?: string
+  yawDeg?: number
+  camera?: Partial<CameraState>
+  /** Joint rotations (radians) laid over the library pose, for poses the library does not have. */
+  joints?: Partial<Record<JointName, JointRotation>>
+  /** Whole-body tilt (radians, XYZ) for falls and dives; overrides the yaw-only root rotation. */
+  rootRotation?: Vec3
+  /** Height (m) of the lowest body point above the ground; defaults to the library pose's lift. */
+  lift?: number
+}
+
+export function buildFixture(opts: FixtureOpts = {}): PoseFixture {
   const body = defaultBody()
   const rig = computeRig(body.sliders, body.asymmetry)
   const lib = getLibraryPose(opts.poseId ?? 'run-1')
   if (!lib) throw new Error('missing library pose')
   const yaw = ((opts.yawDeg ?? 25) * Math.PI) / 180
-  const start: PoseState = { ...defaultPose(), joints: lib.joints, rootTransform: { position: [0.2, 0, -0.3], rotation: [0, yaw, 0] } }
-  const truth = groundPose(rig, start, lib.lift)
+  const start: PoseState = {
+    ...defaultPose(),
+    joints: { ...lib.joints, ...opts.joints },
+    rootTransform: { position: [0.2, 0, -0.3], rotation: opts.rootRotation ?? [0, yaw, 0] },
+  }
+  const truth = groundPose(rig, start, opts.lift ?? lib.lift)
   const camera: CameraState = {
     position: [0.6, 1.45, 4.3],
     target: [0, 0.95, 0],
