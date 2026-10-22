@@ -241,7 +241,7 @@ renderer-only preview; the native file dialog (main process) has not been exerci
 
 ## 2026-10-22 — Phase 3B: Landmarks & Pose Solve
 
-**Status: complete, awaiting acceptance in Electron.** Build green, 160 vitest tests passing (124 before). Checked in the
+**Status: complete, awaiting acceptance in Electron.** Build green, 159 vitest tests passing (124 before). Checked in the
 renderer-only preview with Tram's gesture sketch (landmarks placed by clicking, solve, heatmap, review, undo).
 
 ### What was built
@@ -270,10 +270,10 @@ renderer-only preview with Tram's gesture sketch (landmarks placed by clicking, 
   path (applyShotCamera + Vector3.project). Documented envelope (`test/poseSolve.test.ts`): with all landmarks and the hints an
   artist would give, mean joint error < 7 cm, worst joint < 15 cm, hip depth within 3% (measured about 2–6 cm mean); with
   ±0.4% frame-height jitter over five seeds, mean < 15 cm and worst < 35 cm (the worst are hands and feet whose depth flips).
-- **Tram's sketch** (`test/fixtures/gesture-run.jpg` + `.json`, 14 hand-placed landmarks, left ankle hidden): the solve succeeds,
-  stays inside joint limits, stands on the ground, at least 80% of marked joints are within 8 cm of their rays and the median is
-  under 3 cm (`test/landmarks.test.ts`). The right shoulder stays red (about 9 cm): the clavicle range cannot reach the drawn
-  shoulder, which is what the review button points at.
+- **Tram's sketch** (checked by hand in the preview, 14 landmarks placed by eye, left ankle hidden): the solve succeeded, stayed
+  inside joint limits and stood on the ground, with most joints within 8 cm of their rays. The right shoulder stayed red (about
+  9 cm): the clavicle range cannot reach the drawn shoulder, which is what the review button points at. At Tram's request the
+  sketch is not kept in the repo; the synthetic fixture is the automated acceptance test.
 - **Heatmap colours match the spec**: every joint's colour equals the §4 residual rule (green < 2 cm, yellow < 8 cm), an unreachable
   IK target is at least yellow (§3), and each limb takes its worst joint (tested on all nine poses).
 - **Undo restores the pre-solve state exactly** (deep-equal document), including when the camera was solved in the same step;
@@ -283,8 +283,7 @@ renderer-only preview with Tram's gesture sketch (landmarks placed by clicking, 
   review ordering and metadata round-trip.
 
 ### Assumptions
-- **The fixture sketch is Tram's real drawing**, copied into `test/fixtures/gesture-run.jpg` as the coordinator brief suggested; the
-  landmark positions in `gesture-run.json` were placed by Claude by eye and are approximate.
+- Tram's sketch was used only for the hand check in the preview and is not committed (removed at Tram's request).
 - "Spine" from the deliverable list is covered by the optional chest and waist landmarks (the spine line runs hips → waist →
   chest → neck); there is no separate spine landmark.
 - "Occlusion depth hints" are the per-landmark Near / Far toggles, relative to the parent joint.

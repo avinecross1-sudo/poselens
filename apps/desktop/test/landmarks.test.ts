@@ -10,14 +10,7 @@ import { rigOf } from '../src/state/rigOf'
 import { createAppStore, type AppStore } from '../src/state/store'
 import type { SketchImage } from '../src/state/types'
 import type { SketchMeta, Vec2 } from '../src/types/scene'
-import gestureJson from './fixtures/gesture-run.json'
 import { buildFixture, FIXTURE_ASPECT } from './poseFixture'
-
-const gesture = gestureJson as unknown as {
-  image: { width: number; height: number }
-  landmarksPx: Partial<Record<LandmarkId, Vec2>>
-  depthHints: Partial<Record<LandmarkId, 'toward' | 'away'>>
-}
 
 /** A store with a sketch the size of the fixture frame (image = frame, so image and frame space line up 1:1). */
 function storeWithSketch(width = 1000, height = 1500): AppStore {
@@ -197,35 +190,5 @@ describe('next uncertain joint', () => {
       const c = store.getState().sketch.solve.confidence[u.joint]
       expect(c !== 'green' || u.ambiguous).toBe(true)
     }
-  })
-})
-
-describe("Tram's gesture sketch (test/fixtures/gesture-run.jpg)", () => {
-  /**
-   * Real drawings do not fit a rigid mannequin exactly, so the envelope here is about the drawing, not a truth pose:
-   * the solve succeeds, stays inside joint limits, stands on the ground, and most marked joints land within 8 cm
-   * (green or yellow) of their landmark rays, with the median under 3 cm.
-   */
-  it('solves to a starting pose inside the documented envelope', () => {
-    const store = storeWithSketch(gesture.image.width, gesture.image.height)
-    const s = store.getState()
-    for (const [id, px] of Object.entries(gesture.landmarksPx) as [LandmarkId, Vec2][]) {
-      s.setLandmark(id, [px[0] / gesture.image.width, px[1] / gesture.image.height])
-    }
-    for (const [id, h] of Object.entries(gesture.depthHints)) if (h) s.setDepthHint(id as LandmarkId, h)
-    const r = store.getState().solvePoseFromSketch()
-    expect(r.ok).toBe(true)
-    if (!r.ok) return
-    const reports = Object.values(r.solution.joints).filter((j) => j !== undefined)
-    const residuals = reports.map((j) => j.residual).sort((a, b) => a - b)
-    const within = reports.filter((j) => j.confidence !== 'red').length / reports.length
-    expect(within).toBeGreaterThanOrEqual(0.8)
-    expect(residuals[Math.floor(residuals.length / 2)]).toBeLessThan(0.03)
-    const st = store.getState()
-    expect(limitViolations(st.pose)).toEqual([])
-    const rig = rigOf(st.body)
-    expect(Math.abs(lowestPoint(rig, forwardKinematics(rig, st.pose.joints, st.pose.rootTransform)))).toBeLessThan(1e-6)
-    // No head was drawn: the solve says so instead of inventing one.
-    expect(r.solution.warnings.some((w) => w.includes('crown'))).toBe(true)
   })
 })
