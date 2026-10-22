@@ -331,3 +331,19 @@ renderer-only preview with Tram's gesture sketch (landmarks placed by clicking, 
   Placing a horizon and two VPs fixes the lens exactly.
 - A solve now takes about 0.3–0.8 s when the lens is searched (about 15 ms with a fixed lens).
 - Falling or flying figures need "Feet on the ground" turned off.
+
+### Summary
+The pose-from-sketch solve now copes with strong perspective: when no horizon and vanishing points fix the lens, it finds
+the focal length from the figure (Tram's falling figure: 12 mm instead of a fixed 50 mm), handles worm's-eye feet, and frees
+a limb that holding the drawn joint would leave out of reach. Extreme-pose and extreme-camera tests were written first and now
+pass; 166 tests and the build are green.
+
+### Assumptions
+- The lens is only searched when the perspective cues did not fix it (no orthogonal VP pair). A lens fixed by the cues is kept.
+- The search range is 10–135 mm. A weak pull toward the camera's current focal keeps it from wandering when the figure says
+  little about the lens.
+- When the figure cannot tell a moderately wide lens apart, a matching overlay counts as success; the exact focal length is
+  then the artist's to set (or pin with a horizon and two VPs).
+- The landmarks used on Tram's example were placed by Claude by eye, including a guess at which side is the figure's left.
+- Sensor height, camera position and look direction are not searched; the solve keeps them (grounding still moves figure and
+  camera together).
