@@ -1,0 +1,39 @@
+# Release packaging (CLAUDE.md stack: electron-builder, macOS + Windows).
+# Build the app first (npm run build); electron-builder only packages out/.
+# Windows installers build on Windows; the macOS dmg/zip must be built on a Mac (Apple tools).
+appId: app.poselens.desktop
+productName: PoseLens
+copyright: Copyright © 2026 PoseLens
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+# The renderer bundles React, Three.js and Zustand (devDependencies), so no node_modules are packaged.
+asar: true
+# Pinned to the installed Electron (the workspace hoists it, so electron-builder cannot read it from here).
+electronVersion: 45.0.0
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+nsis:
+  artifactName: ${productName}-${version}-win-${arch}-setup.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+portable:
+  artifactName: ${productName}-${version}-win-${arch}-portable.${ext}
+mac:
+  category: public.app-category.graphics-design
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  # Unsigned release candidates; signing and notarization need an Apple Developer ID.
+  identity: null

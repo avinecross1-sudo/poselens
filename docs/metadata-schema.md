@@ -110,3 +110,27 @@ Still `schemaVersion: 1`; no new top-level fields, older files load unchanged.
 - `sketch.solve.baked: true` now means the artist baked the solve into a manual pose: `settings` and `confidence` are
   empty, `pose.depthNudges` is `{}`, and the landmarks and cues are kept. A new pose or camera solve writes `baked: false`.
 - Compare mode (overlay, difference tint) and trace lock are view settings and are not saved, like sketch opacity.
+
+## Notes (Phase 4)
+Still `schemaVersion: 1`; every addition is optional on load and older files load unchanged.
+- `name` (new, top level, optional): the scene name at save/export time. Re-import uses it; older files take the name
+  from the file path (`{SceneName}/export.json` -> `SceneName`).
+- `scene.groundShadow` (new, default `false`): contact shadow under the figure in the viewport.
+- `balance` is now written, derived from body + pose on save (docs/balance-spec.md) and ignored on load:
+  `com` [x, y, z] m, `supportPolygon` [[x, z], ...] (convex hull of ground contacts, counter-clockwise),
+  `contacts` as `"L:heel" | "L:ball" | "L:toe" | "R:..."` (one entry per touching sole corner), `warnings` as shown.
+- `variants`: up to 4 named shots, each `{ id, name, camera, pose }` with a full camera and pose (same shapes as the
+  top-level ones). Missing fields load with defaults; duplicate ids are renamed; extra entries are dropped.
+- `export.preset`: `clean | lineart | silhouette | shaded` (anything else loads as `clean`).
+- `export.settings` = `{ widthPx, grid, shadow, framing, fixedWidthPx, fixedHeightPx, boundsMargin }`:
+  `framing` is `viewport` (whole shot frame) | `bounds` (cropped to the figure + `boundsMargin` x its larger side) |
+  `fixed` (`fixedWidthPx` x `fixedHeightPx` canvas at the camera's vertical field of view). `grid` / `shadow` say whether
+  the PNG includes the ground grid and the contact shadow. `canvas.widthPx/heightPx` stay the shot frame's size.
+- `export.namingTemplate`: file base name with `{scene}`, `{variant}` (active shot), `{preset}`, `{date}` (YYYY-MM-DD)
+  and `{n}` (first number free in the folder). Default `{scene}`.
+- Export files are now `{folder}/{SceneName}/{name}.png` + `{name}.json`. The same JSON is embedded in the PNG as an
+  iTXt chunk with keyword `poselens-scene`. Re-import reads `{name}.json` next to the PNG, then `export.json`
+  (Phase 1–3 exports), then the embedded copy.
+- `tags` (strings, trimmed, unique ignoring case) and `notes` are now written from the scene's Tags / Notes.
+- Not saved: the readability look, overlays, the clipboard, the active shot, preset tags/notes (those live in the user
+  library file as `presetMeta: { presetId: { tags, notes } }`).

@@ -1,4 +1,5 @@
 import { controlsFromCamera, MAX_PITCH_RAD } from '../lib/cameraMath'
+import { lensGuide, WIDE_LENS_MM } from '../lib/lens'
 import { degToRad, MAX_FOCAL_MM, MIN_FOCAL_MM, radToDeg } from '../lib/units'
 import { MAX_SENSOR_HEIGHT_MM, MIN_SENSOR_HEIGHT_MM } from '../state/cameraSlice'
 import { useStore } from '../state/store'
@@ -19,6 +20,8 @@ export const ASPECT_PRESETS: readonly { label: string; ratio: number }[] = [
 const RATIO_MATCH_EPSILON = 1e-4
 
 const MAX_PITCH_DEG = radToDeg(MAX_PITCH_RAD)
+
+const SCENE_FLAG_LABELS = { groundPlane: 'Ground', grid: 'Grid', horizon: 'Horizon', groundShadow: 'Shadow' } as const
 
 export function CameraPanel() {
   const camera = useStore((s) => s.camera)
@@ -105,6 +108,12 @@ export function CameraPanel() {
         onChange={(v, p) => a.setCameraFocal(v, pv(p))}
         onCommit={a.endGesture}
       />
+      {camera.focal < WIDE_LENS_MM && (
+        <p className="text-[11px] text-orange-300">
+          Wide lens: forms near the frame edge stretch (corners ×{lensGuide(camera.focal, camera.sensorHeight, ratio).cornerStretch.toFixed(2)}). The shot
+          view shows the stretch rings.
+        </p>
+      )}
       <Slider
         label="Sensor height"
         value={camera.sensorHeight}
@@ -134,10 +143,10 @@ export function CameraPanel() {
         </div>
       </div>
       <div className="flex gap-3 pt-2 text-xs text-neutral-400">
-        {(['groundPlane', 'grid', 'horizon'] as const).map((k) => (
+        {(['groundPlane', 'grid', 'horizon', 'groundShadow'] as const).map((k) => (
           <label key={k} className="flex items-center gap-1">
             <input type="checkbox" checked={a.scene[k]} onChange={(e) => a.setSceneFlag(k, e.target.checked)} />
-            {k === 'groundPlane' ? 'Ground' : k === 'grid' ? 'Grid' : 'Horizon'}
+            {SCENE_FLAG_LABELS[k]}
           </label>
         ))}
       </div>

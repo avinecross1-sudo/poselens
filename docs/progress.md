@@ -455,3 +455,84 @@ nudge handles and ghost, part re-solve, compare overlay with difference tint, di
 After a solve the artist can now compare the mannequin against the drawing (overlay, difference tint, trace lock), re-fit one limb or
 the torso without touching the rest, push an elbow, wrist, knee, ankle or the head nearer or farther with a ghost preview while the
 confidence colours update, read why the camera may not match (diagnostics panel), and bake the result into an ordinary manual pose.
+
+## 2026-10-23 — Phase 4: Feedback, reuse, variants
+
+**Status: built, awaiting Tram's review.** `npm run typecheck`, `npm run build` and `npm test` green: 258 vitest tests (201
+before; 57 new in `balance`, `reuse`, `exportReimport`, `readability`). Checked by hand in the renderer-only preview (no Electron
+IPC there): balance overlay and warning, every look, hidden parts, negative space, lens guide, shot compare, clipboard, tags, and
+all four export presets with each framing rendered through the viewport handle. Windows release candidates built and the packaged
+app starts (`apps/desktop/dist/PoseLens-0.4.0-rc.1-win-x64-setup.exe` and `-portable.exe`, unsigned).
+
+### What was built
+1. **Readability** (viewport HUD): looks Normal / Silhouette / Values (hard three-tone blocks from the key light side) / Depth
+   (near light-warm, far dark-cool), drawn as an override on the figure only so gizmos and guides stay as they are. Toggles:
+   Negative space (background enclosed by the figure tinted orange; mask rendered small and flood-filled), Hidden parts, Lens.
+   Ground shadow is a scene setting (Camera panel "Shadow"): a shadow-catcher plane plus the key light's shadow.
+2. **Balance** per docs/balance-spec.md: heel / ball / toe contacts per foot (planted / edge / floating), support polygon (convex
+   hull), CoM from the spec's mass ratios with the mass boost and head-volume scaling (recomputed on every slider change), plumb
+   line, polygon fill, contact dots, lean arrow and angle, weight-shift line, weight per foot, warnings ("CoM outside support
+   polygon by N cm", "No ground contact", "Left/Right foot sliding"). The outside and sliding warnings show even with the overlay off.
+3. **Depth shading and occlusion hints**: the Depth look, and Hidden parts: figure surfaces more than 8 cm behind the visible
+   surface show through in cyan (a depth-texture pass, so the mannequin's own overlaps at joints are not flagged).
+4. **Wide-lens preview**: below 24 mm the shot view shows rings where round forms stretch x1.1 / x1.25 / x1.5, a banner with the
+   corner stretch, and names the head, hands or feet past the x1.25 ring. The camera panel repeats the warning.
+5. **Clipboard** (right panel): copy / paste camera, body profile and pose with provenance (scene, preset, time). Survives loading
+   another scene. Body paste retargets the current pose onto the new body (locked sliders stay); pose paste retargets from the
+   body it was copied on (locked joints and locks stay, depth nudges dropped). Camera paste is refused under trace lock.
+6. **Shots**: up to 4 named camera + pose snapshots in the document (save, go to, update, rename by double-click, duplicate,
+   delete; all undoable). Compare renders every shot offscreen side by side in the current look; click one to go to it.
+   Duplicate scene keeps the document under "<name> copy" with a fresh undo history.
+7. **Export presets**: Clean, Lineart (outline, overlap contours and creases from normal + depth read-backs), Silhouette, Shaded;
+   grid and ground shadow on/off; framing Shot frame / Figure bounds (+ margin) / Fixed canvas; naming template with {scene},
+   {variant}, {preset}, {date}, {n}. Files go to `{folder}/{SceneName}/{name}.png` + `.json`.
+8. **Re-import**: "Re-import export…" (Export panel) and "Re-import PNG" (bottom bar) open a PNG and restore the full scene from
+   its sidecar, or `export.json` for older exports, or the copy embedded in the PNG (iTXt `poselens-scene`) when the sidecar is gone.
+9. **Tags and notes**: scene tags and notes (Scene panel, saved, undoable); body preset tags and notes (Body panel, kept in the
+   user library) with a tag filter over the preset grid.
+10. **Packaging**: electron-builder config, `npm run dist:win` / `dist:mac`, version 0.4.0-rc.1.
+
+### Acceptance checks
+- **CoM outside the support polygon raises a visible warning (fixture)**: `test/fixtures/off-balance.scene.json` (back bend)
+  loads with both feet planted and the CoM 6 cm behind the heels; the store's balance carries "CoM outside support polygon by
+  6.0 cm", which the HUD shows with the overlay on or off; straightening the pose clears it; within 2 cm no warning.
+- **Heavy preset / slider changes move CoM**: mass 0.5 -> 1 moves the CoM by about 1.7 cm in a bent-over pose (more mass in hips
+  and spine) and the store recomputes it; Chibi's head puts the CoM about 4% of height higher than Realistic Average; Slim -> Heavy
+  moves it.
+- **Copy body A -> paste into scene B retargets the pose**: B ends up with A's sliders, B's rotations, locks and root placement,
+  stays on the ground and stands taller; one undo step restores B exactly; provenance names scene A and its preset.
+- **Re-import PNG + sidecar restores the scene within tolerance**: a scene with every Phase 1–4 field exported and re-imported
+  from the sidecar and, separately, from the PNG's embedded copy is deep-equal within 1e-9 (document, export settings, name,
+  shots, tags, notes); export -> re-import -> export writes identical JSON.
+- **Balance polygon computation covered**: convex hull (inner, duplicate, collinear points, winding), inside / distance /
+  closest point (polygon, segment, point), centroid, mass ratios, foot states, tiptoe contacts, no contact, one-foot weight.
+- Also covered: naming template and {n}, PNG chunk embed/replace/read, bounds / fixed framing maths, lineart edges (outline,
+  overlap on the nearer side only, creases), negative-space holes, lens stretch, shots, tags, notes, older files loading.
+
+### Assumptions
+- **Mass model**: the spec's ratios are used as written. With them the mass slider alone moves the CoM only 1–2 cm over its
+  whole range (real bodies behave much the same); bigger changes come from proportions (head size, leg length) and pose.
+- **Feet sliding** is judged between frames of a live drag on the same body (balance-spec "between frames"); the warning stays
+  until the next edit outside a drag. Moving the whole figure counts as sliding.
+- **Values look** lights from the key light's side (up, right, toward the default camera) with fixed tones, ignoring the scene
+  lights so the three steps stay crisp. The Shaded export uses the same look.
+- **Occlusion hint** ignores surfaces less than 8 cm behind the visible one, which hides the mannequin's own overlaps but also
+  a hand held flat against the chest.
+- **Shots** store the full camera and pose and restore them exactly; going to a shot under trace lock applies the pose only.
+- **Export canvas metadata**: `canvas.widthPx/heightPx` stay the shot frame's size; bounds and fixed framing change only the PNG.
+- **Preset tags and notes** live in the user library, not the scene (presets are not part of scenes).
+- **Packaging**: React, Three.js and Zustand moved to devDependencies (Vite bundles them), so the app ships no node_modules.
+  `electronVersion` is pinned in electron-builder.yml because the workspace hoists Electron.
+
+### Stubbed or deferred
+- **macOS release candidate not built**: dmg / zip need a Mac (`npm run dist:mac` there). Both platforms' RCs are unsigned
+  (no Developer ID / code-signing certificate); no app icon yet (default Electron icon).
+- The Electron save / export / re-import dialogs were not clicked through here; the round trip is covered by tests through the
+  same functions, and the packaged app was only checked to start.
+- Compare shows rendered thumbnails, not live side-by-side viewports.
+
+### Summary
+The viewport can now judge a pose as a drawing (silhouette, three values, depth, negative space, hidden parts, wide-lens stretch)
+and as a body (ground contact, support polygon, CoM and its warnings). Cameras, bodies and poses can be copied between scenes,
+each scene can hold up to four named shots that compare side by side, exports come in four looks with three framings and a
+naming template, and an exported PNG can be opened again to restore the scene it came from.

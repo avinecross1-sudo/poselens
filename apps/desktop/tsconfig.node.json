@@ -11,5 +11,5 @@
     "esModuleInterop": true,
     "types": ["node"]
   },
-  "include": ["electron", "src/types/ipc.ts", "src/types/scene.ts", "electron.vite.config.ts", "vitest.config.ts", "tailwind.config.ts"]
+  "include": ["electron", "src/types/ipc.ts", "src/types/scene.ts", "src/export/naming.ts", "src/export/pngText.ts", "electron.vite.config.ts", "vitest.config.ts", "tailwind.config.ts"]
 }

@@ -98,16 +98,42 @@ UI state, not saved in scenes) from the Body panel; the viewport and PNG export 
 - Compare overlay, difference tint, trace lock and the nudge ghost are viewport-only and never saved or exported.
   Trace lock blocks shot-camera and sketch-placement edits.
 
+## Feedback, reuse, variants (Phase 4)
+Metadata additions: `docs/metadata-schema.md` "Notes (Phase 4)". Balance as built: `docs/balance-spec.md` "As implemented".
+- Balance (`lib/balance.ts`, `state/balanceSlice.ts`, `three/balanceOverlay.ts`): contacts, support polygon (convex hull),
+  CoM from the spec's mass ratios (recomputed from the sliders), weight per foot, lean, feet sliding during drags.
+  Derived, never edited; `startBalanceSync` keeps `balance` current and metadata recomputes it on save.
+- Readability (viewport only, never saved): `viewLook` normal | silhouette | values | depth (`three/looks.ts`, drawn by
+  `renderComposite` as an override on the figure only), overlays `balance`, `negativeSpace` (enclosed background holes,
+  `lib/negativeSpace.ts`), `occlusion` (parts > 8 cm behind another part), `lensGuide` (stretch rings below 24 mm,
+  `lib/lens.ts`). `scene.groundShadow` is saved (shadow catcher + key light shadow).
+- Clipboard: camera / body / pose with provenance; app state, survives loading scenes. Body paste retargets the pose
+  (locked sliders stay); pose paste retargets from the source body (locks stay, nudges dropped).
+- Shots: `variants` (max 4, full camera + pose) live in the document (undoable). Compare renders thumbnails offscreen
+  through `ViewportHandle.renderShots`. Duplicate scene = same doc, "<name> copy", fresh history.
+- Export: presets clean | lineart (CPU edges from normal + depth read-backs, `export/lineart.ts`) | silhouette | shaded;
+  grid / shadow switches; framing viewport | bounds | fixed (`export/framing.ts`); naming template (`export/naming.ts`,
+  `{n}` filled by main). The scene JSON goes in the sidecar and in an iTXt chunk (`export/pngText.ts`); re-import reads
+  sidecar, then `export.json`, then the PNG itself.
+- Tags and notes: scene `meta { tags, notes }` (document); body preset tags/notes in the user library (`presetMeta`).
+- Packaging: `npm run dist:win` / `dist:mac` (electron-builder.yml in apps/desktop, output `apps/desktop/dist`).
+  React / Three / Zustand are devDependencies because Vite bundles them. macOS builds need a Mac; RCs are unsigned.
+
 ## State shape (Zustand, single store, sliced)
-- scene:    canvasRatio, groundPlane, grid, sketchLayer
+Document (undoable, saved): scene, body, pose, camera, sketch, variants, meta.
+- scene:    canvasRatio, groundPlane, grid, horizon, groundShadow
 - body:     presetId, modifiedFrom, sliders{}, locks{}, asymmetry{}, stylizedOverride
 - pose:     joints{}, hands{}, rootTransform, ikLocks, jointLocks, depthNudges
 - camera:   position, target, up, focal, sensorHeight, roll, preset
 - sketch:   landmarks{}, horizon, vps[], solveStatus, confidence{}
-- balance:  supportPolygon, com, contactFlags, warnings
-- variants: array of { id, name, camera, pose }
+- variants: array of { id, name, camera, pose } (max 4)
+- meta:     tags[], notes
+App state (not undoable):
+- balance:  derived BalanceResult (com, contacts, feet, supportPolygon, lean, weight, warnings)
 - clipboard: { camera?, body?, pose? } each with provenance
-- export:   preset, namingTemplate, settings
+- export:   preset, namingTemplate, settings { widthPx, grid, shadow, framing, fixedWidthPx, fixedHeightPx, boundsMargin }
+- library:  customPresets, favoritePoses, presetMeta (user library file)
+- ui:       cameras, selection, overlays, viewLook, figureStyle, sketch view, activeVariantId
 - history:  command stack (do/undo)
 
 ## Coding standards

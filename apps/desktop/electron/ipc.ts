@@ -6,13 +6,26 @@ import {
   type ExportWriteResult,
   type SceneLoadResult,
   type SceneSaveRequest,
+  type ReimportResult,
   type SceneSaveResult,
   type SketchFileData,
   type SketchImportResult,
   type UserLibraryFile,
 } from '../src/types/ipc'
 import { join } from 'node:path'
-import { pickFolder, pickOpenPath, pickSavePath, pickSketchPath, readJson, readJsonIfExists, readSketchFile, writeExportFolder, writeJson } from './fileIO'
+import {
+  pickFolder,
+  pickOpenPath,
+  pickReimportPath,
+  pickSavePath,
+  pickSketchPath,
+  readExportScene,
+  readJson,
+  readJsonIfExists,
+  readSketchFile,
+  writeExportFolder,
+  writeJson,
+} from './fileIO'
 
 const LIBRARY_FILE = 'library.json'
 const libraryPath = (): string => join(app.getPath('userData'), LIBRARY_FILE)
@@ -40,8 +53,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC.exportWrite, async (_e, req: ExportWriteRequest): Promise<ExportWriteResult> => {
     const parent = await pickFolder(win())
     if (!parent) return { canceled: true }
-    const dir = await writeExportFolder(parent, req.sceneName, req.png, req.scene)
-    return { dir }
+    return writeExportFolder(parent, req.sceneName, req.fileBase, req.png, req.scene)
+  })
+
+  ipcMain.handle(IPC.exportReimport, async (): Promise<ReimportResult> => {
+    const path = await pickReimportPath(win())
+    if (!path) return { canceled: true }
+    return readExportScene(path)
   })
 
   ipcMain.handle(IPC.appInfo, (): AppInfo => ({ version: app.getVersion() }))

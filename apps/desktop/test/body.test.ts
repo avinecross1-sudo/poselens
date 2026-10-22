@@ -174,9 +174,17 @@ describe('head-unit measurements', () => {
 
 describe('user library file', () => {
   it('round-trips and drops malformed entries', () => {
-    const lib = { customPresets: [{ id: 'custom-1', name: 'Mine', sliders: { ...NEUTRAL_SLIDERS, mass: 0.9 }, modifiedFrom: 'heavy' }], favoritePoses: ['sit'] }
+    const lib = {
+      customPresets: [{ id: 'custom-1', name: 'Mine', sliders: { ...NEUTRAL_SLIDERS, mass: 0.9 }, modifiedFrom: 'heavy' }],
+      favoritePoses: ['sit'],
+      presetMeta: { heroic: { tags: ['comic', 'hero'], notes: 'Cover shots' } },
+    }
     expect(parseLibrary(JSON.parse(JSON.stringify(toLibraryFile(lib))))).toEqual(lib)
-    expect(parseLibrary({ customPresets: [{ id: 3 }, 'x'], favoritePoses: ['a', 2] })).toEqual({ customPresets: [], favoritePoses: ['a'] })
-    expect(parseLibrary(null)).toEqual({ customPresets: [], favoritePoses: [] })
+    expect(parseLibrary({ customPresets: [{ id: 3 }, 'x'], favoritePoses: ['a', 2], presetMeta: { x: 'bad', y: { tags: [1], notes: '' } } })).toEqual({
+      customPresets: [],
+      favoritePoses: ['a'],
+      presetMeta: {},
+    })
+    expect(parseLibrary(null)).toEqual({ customPresets: [], favoritePoses: [], presetMeta: {} })
   })
 })

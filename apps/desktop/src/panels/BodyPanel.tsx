@@ -16,7 +16,9 @@ import { useStore } from '../state/store'
 import { ASYMMETRY_KEYS, type Vec3 } from '../types/scene'
 import { LockButton } from '../ui/LockButton'
 import { PresetCard } from '../ui/PresetCard'
-import { Section, smallBtn } from '../ui/Section'
+import { chipBtn, Section, smallBtn } from '../ui/Section'
+import { NotesField, TagEditor } from '../ui/TagEditor'
+import { withTag } from '../state/sceneSlice'
 import { Slider } from '../ui/Slider'
 import { Toggle } from '../ui/Toggle'
 
@@ -29,7 +31,12 @@ export function BodyPanel() {
   const body = useStore((s) => s.body)
   const customPresets = useStore((s) => s.customPresets)
   const a = useStore((s) => s)
+  const presetMeta = useStore((s) => s.presetMeta)
+  const [tagFilter, setTagFilter] = useState<string | null>(null)
   const allPresets = [...BODY_PRESETS, ...customPresets]
+  const allTags = [...new Set(Object.values(presetMeta).flatMap((m) => m.tags))].sort((x, y) => x.localeCompare(y))
+  const filter = tagFilter && allTags.includes(tagFilter) ? tagFilter : null
+  const shown = filter ? allPresets.filter((p) => presetMeta[p.id]?.tags.includes(filter)) : allPresets
 
   return (
     <section className="space-y-2">
@@ -50,14 +57,24 @@ export function BodyPanel() {
           onChange={a.setFigureStyle}
         />
       </div>
+      {allTags.length > 0 && (
+        <div className="flex flex-wrap gap-1" title="Show presets with this tag">
+          {allTags.map((t) => (
+            <button key={t} type="button" className={chipBtn(filter === t)} onClick={() => setTagFilter(filter === t ? null : t)}>
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-1.5">
-        {allPresets.map((p) => (
+        {shown.map((p) => (
           <div key={p.id} className="relative">
             <PresetCard
               name={p.name}
               height={p.sliders.height}
               active={body.presetId === p.id}
               modified={body.presetId === p.id && body.modifiedFrom === p.id}
+              tags={presetMeta[p.id]?.tags}
               onClick={() => a.applyPreset(p.id)}
             />
             {!getPreset(p.id) && (
@@ -79,6 +96,7 @@ export function BodyPanel() {
         </p>
       )}
 
+      <PresetNotes />
       <PresetBlend />
 
       {BODY_GROUPS.map((g) => (
@@ -88,6 +106,25 @@ export function BodyPanel() {
       <AsymmetrySection />
       <StylizedSection />
     </section>
+  )
+}
+
+/** Tags and notes on the current body preset (kept in the user library, not in the scene). */
+function PresetNotes() {
+  const presetId = useStore((s) => s.body.presetId)
+  const customPresets = useStore((s) => s.customPresets)
+  const meta = useStore((s) => s.presetMeta[s.body.presetId])
+  const setPresetTags = useStore((s) => s.setPresetTags)
+  const setPresetNotes = useStore((s) => s.setPresetNotes)
+  const tags = meta?.tags ?? []
+  const name = getPreset(presetId, customPresets)?.name ?? presetId
+  return (
+    <Section title={`Preset tags & notes: ${name}`} defaultOpen={Boolean(meta)}>
+      <div className="space-y-1">
+        <TagEditor tags={tags} onAdd={(t) => setPresetTags(presetId, withTag(tags, t))} onRemove={(t) => setPresetTags(presetId, tags.filter((x) => x !== t))} placeholder="Add preset tag" />
+        <NotesField value={meta?.notes ?? ''} onChange={(v) => setPresetNotes(presetId, v)} placeholder="Preset notes" />
+      </div>
+    </Section>
   )
 }
 
