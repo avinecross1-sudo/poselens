@@ -3,6 +3,7 @@ import type { FileResult } from '../export/sceneFile'
 import { useStore } from '../state/store'
 import { Toggle } from '../ui/Toggle'
 import { BodyPanel } from './BodyPanel'
+import { LandmarkPanel } from './LandmarkPanel'
 import { PerspectivePanel } from './PerspectivePanel'
 import { PosePanel } from './PosePanel'
 import { SketchPanel } from './SketchPanel'
@@ -36,6 +37,7 @@ export function LeftPanel({ onResult }: { onResult: (r: FileResult) => void }) {
           <div className="space-y-3">
             <SketchPanel onResult={onResult} />
             <PerspectivePanel />
+            <LandmarkPanel />
           </div>
         )}
       </div>

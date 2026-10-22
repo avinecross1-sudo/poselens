@@ -11,9 +11,10 @@ import { createJointGizmo } from './jointGizmo'
 import { createMannequin } from './mannequin'
 import { createOverlays } from './overlays'
 import { CueOverlay } from './CueOverlay'
+import { LandmarkOverlay } from './LandmarkOverlay'
 import { SketchLayer } from './SketchLayer'
 import { ViewportHud } from './ViewportHud'
-import { startSceneSync } from './sceneSync'
+import { confidenceMaps, startSceneSync } from './sceneSync'
 import { setViewportHandle } from './viewportHandle'
 
 /** Editor view draws the shot frustum out to this multiple of the camera-to-target distance. */
@@ -138,14 +139,21 @@ export function Viewport() {
     tick()
 
     setViewportHandle({
-      renderExport: (widthPx, heightPx) =>
-        renderTransparentPng({
-          scene,
-          camera: appStore.getState().camera,
-          widthPx,
-          heightPx,
-          hide: [helpers.group, gizmo.helper, shotFrustum, overlays.headUnits, overlays.gaze, ikHandles.group],
-        }),
+      renderExport: async (widthPx, heightPx) => {
+        // The confidence heatmap is viewport-only.
+        mannequin.setConfidence(null, null)
+        try {
+          return await renderTransparentPng({
+            scene,
+            camera: appStore.getState().camera,
+            widthPx,
+            heightPx,
+            hide: [helpers.group, gizmo.helper, shotFrustum, overlays.headUnits, overlays.gaze, ikHandles.group],
+          })
+        } finally {
+          mannequin.setConfidence(...confidenceMaps(appStore.getState()))
+        }
+      },
     })
 
     return () => {
@@ -169,6 +177,7 @@ export function Viewport() {
       <SketchLayer />
       <div ref={hostRef} className="absolute inset-0" />
       <CueOverlay />
+      <LandmarkOverlay />
       <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-3">
         <div className="pointer-events-auto">
           <Toggle

@@ -73,6 +73,7 @@ export const defaultSketch = (): SketchMeta => ({
   size: null,
   alignment: { x: 0, y: 0, scale: 1, rotation: 0 },
   landmarks: {},
+  depthHints: {},
   horizon: null,
   vps: [],
   solve: { settings: {}, confidence: {}, baked: false },

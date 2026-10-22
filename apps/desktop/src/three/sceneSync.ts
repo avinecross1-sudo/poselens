@@ -8,7 +8,9 @@ import { IK_CHAIN_IDS, type IkChainId } from '../solve/ik'
 import type { Helpers } from './helpers'
 import type { IkHandles } from './ikHandles'
 import type { JointGizmo } from './jointGizmo'
-import type { Mannequin } from './mannequin'
+import type { ConfidenceMap, Mannequin } from './mannequin'
+import { LIMB_JOINTS, type LimbId } from '../solve/poseSolve'
+import { JOINT_NAMES } from '../types/scene'
 import type { Overlays } from './overlays'
 
 export interface SyncTargets {
@@ -20,6 +22,20 @@ export interface SyncTargets {
   /** Called when the shot camera or canvas ratio changes. */
   onShotCameraChange: (s: Store) => void
   onActiveCameraChange: (s: Store) => void
+}
+
+/** Heatmap colours from the last pose solve, or nulls when the overlay is off or nothing was solved. */
+export function confidenceMaps(s: Store): [ConfidenceMap | null, ConfidenceMap | null] {
+  if (!s.overlays.confidence) return [null, null]
+  const conf = s.sketch.solve.confidence
+  const joints: ConfidenceMap = {}
+  for (const j of JOINT_NAMES) if (conf[j]) joints[j] = conf[j]
+  const segments: ConfidenceMap = {}
+  for (const [limb, members] of Object.entries(LIMB_JOINTS) as [LimbId, readonly (typeof JOINT_NAMES)[number][]][]) {
+    const c = conf[limb]
+    if (c) for (const j of members) segments[j] = c
+  }
+  return Object.keys(joints).length ? [joints, segments] : [null, null]
 }
 
 export function startSceneSync(store: AppStore, t: SyncTargets): () => void {
@@ -58,6 +74,7 @@ export function startSceneSync(store: AppStore, t: SyncTargets): () => void {
       t.overlays.headUnits.visible = s.overlays.headUnits
       t.overlays.gaze.visible = s.overlays.gaze
     }
+    if (!prev || s.sketch.solve !== prev.sketch.solve || s.overlays !== prev.overlays) t.mannequin.setConfidence(...confidenceMaps(s))
     if (!prev || s.activeCamera !== prev.activeCamera) t.onActiveCameraChange(s)
   }
   apply(store.getState(), null)

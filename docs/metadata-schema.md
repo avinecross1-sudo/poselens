@@ -83,3 +83,18 @@ Still `schemaVersion: 1`: all additions are backwards compatible; older files lo
   green / yellow / red. It is cleared when a cue or the placement changes afterwards. `baked` stays
   `false`: a solved camera is an ordinary editable camera.
 - Sketch opacity, visibility and lock are view settings and are not saved.
+
+## Notes (Phase 3B)
+Still `schemaVersion: 1`; older files load with the defaults below.
+- `sketch.landmarks` is keyed by landmark id, points in image space like the cues: `head` (crown), `chin`,
+  `neck` (neck base), `shoulderL/R`, `elbowL/R`, `wristL/R`, `hipL/R` (hip joints), `kneeL/R`, `ankleL/R`,
+  `toeL/R` (ball of the foot), and the optional `chest`, `waist`, `gaze`. L/R are the figure's sides.
+  Each id names one mannequin node (`src/solve/landmarks.ts`): e.g. `elbowL` is `forearmL`, `hipL` is `thighL`.
+- `sketch.depthHints` (new, default `{}`) = `{ landmarkId: "toward" | "away" }`: the joint is nearer the viewer
+  than the joint it hangs from, or farther. Missing in older files.
+- `sketch.solve.settings.pose` holds the last pose solve: `depth` (m, view depth of the hip centre), `grounded`,
+  `planted` (feet snapped to the ground), `cameraSolved` (the same step also solved the camera from the cues),
+  `residualsCm` per joint, `ambiguous` and `unreachable` joint lists, and `warnings`.
+- `sketch.solve.confidence` adds green / yellow / red per solved joint (node names, e.g. `forearmL`) and per limb
+  (`torso`, `head`, `armL`, `armR`, `legL`, `legR`), beside `camera`. Changing a landmark or hint clears the pose
+  entries and keeps `camera`; changing a cue clears everything, as before.

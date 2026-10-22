@@ -170,6 +170,8 @@ export interface SketchMeta {
   size: { width: number; height: number } | null
   alignment: { x: number; y: number; scale: number; rotation: number }
   landmarks: Record<string, Vec2>
+  /** Per landmark: nearer ('toward') or farther ('away') from the viewer than its parent joint. */
+  depthHints: Record<string, 'toward' | 'away'>
   horizon: [Vec2, Vec2] | null
   vps: Vec2[]
   solve: { settings: Record<string, unknown>; confidence: Record<string, ConfidenceLevel>; baked: boolean }

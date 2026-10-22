@@ -1,0 +1,21 @@
+{
+  "description": "Tram's gesture sketch (gesture-run.jpg): a running figure seen from the front, no head drawn. Landmarks placed by hand in image pixels; the left ankle is hidden behind the thigh and left unmarked.",
+  "image": { "width": 605, "height": 1062 },
+  "landmarksPx": {
+    "neck": [205, 160],
+    "shoulderR": [150, 200],
+    "shoulderL": [268, 205],
+    "elbowR": [125, 105],
+    "wristR": [92, 98],
+    "elbowL": [355, 195],
+    "wristL": [470, 240],
+    "hipR": [210, 435],
+    "hipL": [295, 430],
+    "kneeR": [215, 618],
+    "ankleR": [265, 878],
+    "toeR": [272, 985],
+    "kneeL": [292, 565],
+    "waist": [245, 335]
+  },
+  "depthHints": { "kneeL": "toward" }
+}

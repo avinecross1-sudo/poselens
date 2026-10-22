@@ -3,7 +3,7 @@
 import * as THREE from 'three'
 import { HAND_LENGTH_PER_PALM, SKELETON, type Rig, type Segment } from './bodyRig'
 import { degToRad } from '../lib/units'
-import { JOINT_EULER_ORDER, type HandShape, type JointName, type PoseState, type Side } from '../types/scene'
+import { JOINT_EULER_ORDER, type ConfidenceLevel, type HandShape, type JointName, type PoseState, type Side } from '../types/scene'
 
 /** Capsule tessellation: enough to read as smooth at 2000 px export. */
 const CAPSULE_CAP_SEGMENTS = 6
@@ -16,6 +16,11 @@ const BODY_COLOR = 0xb8bcc4
 const JOINT_COLOR = 0x7aa2d6
 const JOINT_SELECTED_COLOR = 0xf59e0b
 const JOINT_LOCKED_COLOR = 0xdc2626
+/** Pose-solve confidence heatmap: joint spheres take the joint colour, segments a lighter limb tint. */
+const CONFIDENCE_JOINT_COLOR: Record<ConfidenceLevel, number> = { green: 0x22c55e, yellow: 0xfacc15, red: 0xef4444 }
+const CONFIDENCE_SEGMENT_COLOR: Record<ConfidenceLevel, number> = { green: 0xa7d8b4, yellow: 0xe8d98f, red: 0xe6a1a1 }
+
+export type ConfidenceMap = Partial<Record<JointName, ConfidenceLevel>>
 const Y_AXIS = new THREE.Vector3(0, 1, 0)
 
 // ---- Fingers: visual primitives under each hand node (not joints) ----
@@ -138,6 +143,8 @@ export interface Mannequin {
   applyStylize: (matrix: number[] | null) => void
   setSelected: (joint: JointName | null) => void
   setLocked: (joints: ReadonlySet<JointName>) => void
+  /** Viewport-only heatmap (null clears it): per-joint colours for the spheres, per-limb tints for the segments. */
+  setConfidence: (joints: ConfidenceMap | null, segments: ConfidenceMap | null) => void
   dispose: () => void
 }
 
@@ -170,6 +177,9 @@ export function createMannequin(): Mannequin {
   const jointMat = new THREE.MeshStandardMaterial({ color: JOINT_COLOR, roughness: 0.5 })
   const jointSelMat = new THREE.MeshStandardMaterial({ color: JOINT_SELECTED_COLOR, roughness: 0.5, emissive: 0x4a2a00 })
   const jointLockMat = new THREE.MeshStandardMaterial({ color: JOINT_LOCKED_COLOR, roughness: 0.5, emissive: 0x3a0000 })
+  const levels = ['green', 'yellow', 'red'] as const
+  const confJointMat = Object.fromEntries(levels.map((l) => [l, new THREE.MeshStandardMaterial({ color: CONFIDENCE_JOINT_COLOR[l], roughness: 0.5 })])) as Record<ConfidenceLevel, THREE.MeshStandardMaterial>
+  const confSegMat = Object.fromEntries(levels.map((l) => [l, new THREE.MeshStandardMaterial({ color: CONFIDENCE_SEGMENT_COLOR[l], roughness: 0.65, metalness: 0 })])) as Record<ConfidenceLevel, THREE.MeshStandardMaterial>
 
   const group = new THREE.Group()
   group.name = 'mannequin'
@@ -208,7 +218,13 @@ export function createMannequin(): Mannequin {
 
   let selected: JointName | null = null
   let locked: ReadonlySet<JointName> = new Set()
-  const materialFor = (j: JointName): THREE.Material => (j === selected ? jointSelMat : locked.has(j) ? jointLockMat : jointMat)
+  let jointConf: ConfidenceMap = {}
+  const materialFor = (j: JointName): THREE.Material => {
+    if (j === selected) return jointSelMat
+    if (locked.has(j)) return jointLockMat
+    const c = jointConf[j]
+    return c ? confJointMat[c] : jointMat
+  }
   const refreshJoint = (j: JointName): void => {
     jointMeshes[j].material = materialFor(j)
   }
@@ -268,8 +284,21 @@ export function createMannequin(): Mannequin {
       for (const j of joints) refreshJoint(j)
     },
 
+    setConfidence(joints, segments) {
+      jointConf = joints ?? {}
+      for (const def of SKELETON) {
+        refreshJoint(def.name)
+        const c = segments?.[def.name]
+        segMeshes[def.name].material = c ? confSegMat[c] : bodyMat
+      }
+    },
+
     dispose() {
       for (const m of pickables) m.geometry.dispose()
+      for (const l of levels) {
+        confJointMat[l].dispose()
+        confSegMat[l].dispose()
+      }
       bodyMat.dispose()
       jointMat.dispose()
       jointSelMat.dispose()

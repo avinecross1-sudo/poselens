@@ -170,6 +170,9 @@ function readSketch(v: unknown): SketchMeta {
       rotation: num(a['rotation'], d.alignment.rotation),
     },
     landmarks: Object.fromEntries(Object.entries(obj(s['landmarks'])).flatMap(([k, p]) => (vec2(p) ? [[k, vec2(p) as Vec2]] : []))),
+    depthHints: Object.fromEntries(
+      Object.entries(obj(s['depthHints'])).filter((e): e is [string, 'toward' | 'away'] => e[1] === 'toward' || e[1] === 'away'),
+    ),
     horizon: h.length === 2 && h[0] && h[1] ? [h[0], h[1]] : null,
     vps: Array.isArray(s['vps']) ? s['vps'].map(vec2).filter((p): p is Vec2 => p !== null).slice(0, MAX_VPS) : [],
     solve: {

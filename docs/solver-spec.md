@@ -49,3 +49,36 @@ Algorithm: CCD (Cyclic Coordinate Descent), 8 iterations max.
   focal than the horizontal pair.
 - Yaw and camera position are not solved from cues: the solve keeps them and only tilts the view, sets the roll
   and sets the focal length.
+
+### §2–4 as implemented (Phase 3B, `src/solve/poseSolve.ts`, `depthResolve.ts`, `projection.ts`)
+- Projection matches the shot camera render path (lookAt with up, then roll); frame space as in §1.
+- **Depth of the figure.** Every drawn bone can only look shorter than it is, so a figure placed too far cannot
+  reach its landmarks while a nearer one always can by tilting bones in depth. The whole staged solve is run over
+  hip-centre depths 0.5–1.6× a body-size estimate (second-smallest of the per-bone estimates f·L/l); the cost is
+  the mean landmark residual with the worst 1 in 8 landmarks dropped. When the best depth fits (≤ 5 mm) the
+  farthest depth within 1 mm of it is taken (least foreshortening), refined by bisection; a hand drawing that never
+  fits exactly takes the best depth itself (golden-section refinement).
+- **Root placement (§2).** The hip centre sits on the ray through the hip midpoint at that depth; the left hip joint
+  is depth-resolved at half the hip width from it (the right hip mirrors it). The two solutions are the figure
+  turned left or right: a hip hint, then the toe directions on screen, then the pre-solve pose decide. Root heading
+  = the hips' forward on the ground; the rest of the pelvis tilt goes in the hips joint.
+- **Ground.** With "Feet on the ground" (default) the lowest body point is put on y = 0 and the figure is centred
+  over the origin by moving figure *and camera* together, so the drawing still lines up and the camera height is
+  solved from the figure. Feet within 6 cm of the lowest point are planted: the ankle goes where its ray meets the
+  ground plane (exactly on its ray) and the toes likewise (§2 snap). Off (jumps, falls): the camera does not move.
+- **Torso.** Neck base, waist and shoulders are depth-resolved from the hip centre / neck with rest distances,
+  preferring the more upright and less twisted choice. The hips aim at the waist (or neck); spine and chest share
+  the bend (the chest landmark sets the split); the clavicles turn within their limits toward the shoulders. The
+  head axis comes from crown and chin; the gaze point sets the head turn by a 1D search, split between neck and head.
+- **Limb IK (§3) + depth resolve (§4).** The elbow/knee is resolved from the shoulder/hip, the wrist/ankle from the
+  elbow/knee; all (up to four) combinations are scored by residual + joint-limit clamping + distance to the pre-solve
+  pose, and hints filter them. The §4 1D search is done in closed form (ray–sphere: two exact depths, or the
+  closest point with residual = stretch). The limb is aimed analytically (upper joint along the bone, hinge plane
+  through the end joint; nearly straight limbs keep their natural twist), clamped to joint limits, then CCD
+  (8 iterations, limits enforced) polishes the end joint with the drawn mid joint held. Without a mid landmark the
+  end target is the landmark on a plane at the base joint's depth, solved by CCD as §3 describes.
+- **Confidence.** Per joint, the distance from the final joint (crown/chin on the head sphere) to its landmark ray:
+  green < 2 cm, yellow < 8 cm, red otherwise; an unreachable IK target is at least yellow. A limb takes its worst
+  joint. Joints whose two depth choices both fit with no hint are flagged ambiguous for review.
+- Locked joints keep their rotations; hands and depth nudges are kept. The stylized override is not part of the
+  solve (the panel says so when it is active).

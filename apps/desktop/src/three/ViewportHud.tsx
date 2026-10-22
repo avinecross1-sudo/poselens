@@ -5,6 +5,7 @@ import { limbLengths, measure } from '../lib/measure'
 import { rigOf } from '../state/rigOf'
 import { useStore } from '../state/store'
 import type { Overlays } from '../state/types'
+import { ReviewNext } from '../ui/ReviewNext'
 
 const CM_PER_M = 100
 const cm = (m: number): string => `${(m * CM_PER_M).toFixed(1)} cm`
@@ -13,6 +14,7 @@ const OVERLAY_TOGGLES: readonly { key: keyof Overlays; label: string }[] = [
   { key: 'headUnits', label: 'Head units' },
   { key: 'gaze', label: 'Gaze' },
   { key: 'ikHandles', label: 'IK handles' },
+  { key: 'confidence', label: 'Confidence' },
 ]
 
 export function ViewportHud() {
@@ -66,6 +68,9 @@ export function ViewportHud() {
       )}
 
       <div className="pointer-events-none absolute bottom-3 left-3 right-3 flex flex-col items-start gap-1 text-xs">
+        <div className="pointer-events-auto">
+          <ReviewNext compact />
+        </div>
         {stylized && stylized.acknowledged && (
           <div className="rounded bg-amber-900/80 px-2 py-1 text-amber-100">
             Stylized override active: non-uniform scale distorts real proportions and measurements.

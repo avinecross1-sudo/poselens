@@ -238,3 +238,64 @@ renderer-only preview; the native file dialog (main process) has not been exerci
 - Landmark marking and the pose/depth solve (Phase 3B) and edit-after-solve (3C).
 - No two-point numeric entry for cues; they are placed and dragged only.
 - Electron main-process import dialog untested here (see status).
+
+## 2026-10-22 — Phase 3B: Landmarks & Pose Solve
+
+**Status: complete, awaiting acceptance in Electron.** Build green, 160 vitest tests passing (124 before). Checked in the
+renderer-only preview with Tram's gesture sketch (landmarks placed by clicking, solve, heatmap, review, undo).
+
+### What was built
+1. **Guided landmark checklist** (`src/solve/landmarks.ts`, `src/panels/LandmarkPanel.tsx`): crown, chin, neck base, shoulders,
+   elbows, wrists, hips, knees, ankles, toes (ball of the foot = toe direction); optional chest, waist, gaze. "Start marking" arms
+   the first missing landmark and each click moves on to the next missing one; click a name to redo it, drag a marker to refine.
+   Per-landmark depth hint (Near / Far = nearer or farther from the viewer than the joint it hangs from).
+2. **Landmark layer** (`src/three/LandmarkOverlay.tsx`): stick figure over the sketch with a prompt naming the joint to click;
+   markers take their joint's confidence colour after a solve, with "?" on ambiguous joints.
+3. **Staged solver** (`src/solve/poseSolve.ts`, `depthResolve.ts`, `projection.ts`; solver-spec §2–4 "as implemented"):
+   depth search (least foreshortening that fits the drawing) → root placement from the hips → torso, clavicles, head and gaze
+   → limb depth resolve + analytic aim + CCD polish (8 iterations, joint limits) → grounding (figure and camera move together,
+   which solves the camera height; planted feet snap onto the ground plane).
+4. **Output is ordinary editable pose state**: no locks are added; locked joints, hands and depth nudges are kept.
+5. **One undo step** (`solvePoseFromSketch` in `sketchSlice.ts`): pose, camera and the solve record together. If the perspective
+   cues have not been solved since they changed, the camera solve (3A) runs inside the same step.
+6. **Confidence heatmap**: green / yellow / red per joint (joint spheres) and per limb (segment tint), toggled by "Confidence" in
+   the viewport; hidden in PNG export. Limb chips and warnings in the panel.
+7. **"Next uncertain joint"** (`src/state/review.ts`, `src/ui/ReviewNext.tsx`): in the viewport and the panel; cycles red, then
+   yellow, then ambiguous joints (worst residual first) and selects each so its controls open in the Pose tab.
+8. Metadata: `sketch.depthHints` (new), `sketch.solve.settings.pose` and per-joint / per-limb confidence (metadata-schema.md
+   "Phase 3B"). Older files load with no hints.
+
+### Acceptance checks
+- **Fixture sketch** (`test/poseFixture.ts`): nine library poses on the default body, landmarks projected through the real render
+  path (applyShotCamera + Vector3.project). Documented envelope (`test/poseSolve.test.ts`): with all landmarks and the hints an
+  artist would give, mean joint error < 7 cm, worst joint < 15 cm, hip depth within 3% (measured about 2–6 cm mean); with
+  ±0.4% frame-height jitter over five seeds, mean < 15 cm and worst < 35 cm (the worst are hands and feet whose depth flips).
+- **Tram's sketch** (`test/fixtures/gesture-run.jpg` + `.json`, 14 hand-placed landmarks, left ankle hidden): the solve succeeds,
+  stays inside joint limits, stands on the ground, at least 80% of marked joints are within 8 cm of their rays and the median is
+  under 3 cm (`test/landmarks.test.ts`). The right shoulder stays red (about 9 cm): the clavicle range cannot reach the drawn
+  shoulder, which is what the review button points at.
+- **Heatmap colours match the spec**: every joint's colour equals the §4 residual rule (green < 2 cm, yellow < 8 cm), an unreachable
+  IK target is at least yellow (§3), and each limb takes its worst joint (tested on all nine poses).
+- **Undo restores the pre-solve state exactly** (deep-equal document), including when the camera was solved in the same step;
+  redo re-applies it; later edits are separate undo steps.
+- vitest covers projection (against the Three.js camera), depth resolve (two solutions, stretch residual, hints, behind-camera,
+  thresholds), the staged solve and IK (limits, locks, reprojection, missing landmarks, feet off the ground), store actions,
+  review ordering and metadata round-trip.
+
+### Assumptions
+- **The fixture sketch is Tram's real drawing**, copied into `test/fixtures/gesture-run.jpg` as the coordinator brief suggested; the
+  landmark positions in `gesture-run.json` were placed by Claude by eye and are approximate.
+- "Spine" from the deliverable list is covered by the optional chest and waist landmarks (the spine line runs hips → waist →
+  chest → neck); there is no separate spine landmark.
+- "Occlusion depth hints" are the per-landmark Near / Far toggles, relative to the parent joint.
+- Landmark L/R are the figure's own sides. The hip and neck landmarks are joint centres, not bony landmarks.
+- With "Feet on the ground" on (default) the solve moves the shot camera (position and target) together with the figure, so the
+  camera height comes from the figure; the view through the camera is unchanged. Turn it off for jumps.
+- Without a horizon or VPs the camera keeps its current pitch, roll and focal; the pose fits through that camera.
+- The stylized override is ignored by the solve (the panel warns when it is active).
+- Pose-solve options and the active landmark are UI state, not saved in scenes.
+
+### Stubbed or deferred
+- Sketch compare mode, partial limb re-solve, depth nudge handles, camera diagnostics panel and bake (Phase 3C).
+- No automatic landmark detection (non-goal).
+- Electron main-process sketch import still untested here; the preview loads the image through the dev server.

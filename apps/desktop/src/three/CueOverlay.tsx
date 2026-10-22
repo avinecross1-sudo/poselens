@@ -133,7 +133,8 @@ export function CueOverlay() {
     )
   }
 
-  const armed = tool !== 'none'
+  // The landmark tool has its own layer (LandmarkOverlay).
+  const armed = tool !== 'none' && tool !== 'landmark'
   const cursorStyle = tool === 'move' ? (view.locked ? 'not-allowed' : 'move') : 'crosshair'
 
   return (

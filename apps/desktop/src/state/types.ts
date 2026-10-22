@@ -19,6 +19,8 @@ import type {
   Vec3,
 } from '../types/scene'
 import type { SolveResult } from '../solve/cameraSolve'
+import type { DepthHint, LandmarkId } from '../solve/landmarks'
+import type { PoseSolveResult } from '../solve/poseSolve'
 import type { BodyGroup } from './bodySliders'
 import type { BodyPreset } from './presets'
 
@@ -134,6 +136,8 @@ export interface Overlays {
   headUnits: boolean
   gaze: boolean
   ikHandles: boolean
+  /** Pose-solve confidence colours on the mannequin. */
+  confidence: boolean
 }
 
 export interface UiSlice {
@@ -152,6 +156,10 @@ export interface UiSlice {
   cueDraft: Vec2 | null
   /** Last solve failure or sketch load warning. Not saved. */
   sketchMessage: string | null
+  /** Landmark the landmark tool places next. */
+  activeLandmark: LandmarkId | null
+  /** Pose solve option: stand the figure on the ground (camera height follows). */
+  feetOnGround: boolean
   setActiveCamera: (c: ActiveCamera) => void
   selectJoint: (j: JointName | null) => void
   setIkEnabled: (chain: IkChainId, on: boolean) => void
@@ -162,6 +170,9 @@ export interface UiSlice {
   setCueTool: (t: CueTool) => void
   setCueDraft: (p: Vec2 | null) => void
   setSketchMessage: (m: string | null) => void
+  /** Arms the landmark tool on a landmark (null disarms it). */
+  setActiveLandmark: (id: LandmarkId | null) => void
+  setFeetOnGround: (on: boolean) => void
 }
 
 /** User data that lives outside scenes (persisted by main in the app's userData folder). */
@@ -187,7 +198,7 @@ export interface SketchImage {
 }
 
 /** Cue tool currently armed in the viewport. 'move' drags the sketch itself. */
-export type CueTool = 'none' | 'horizon' | 'vp' | 'move'
+export type CueTool = 'none' | 'horizon' | 'vp' | 'move' | 'landmark'
 
 /** View-only sketch layer settings. Not saved in scenes. */
 export interface SketchView {
@@ -215,6 +226,16 @@ export interface SketchSlice {
   clearCues: () => void
   /** One undo step that sets pitch, roll and focal and records the solve; the camera stays editable. */
   solveCameraFromSketch: () => SolveResult
+  /** Image-space point. Placing one makes an earlier pose solve stale. */
+  setLandmark: (id: LandmarkId, p: Vec2, opts?: EditOpts) => void
+  removeLandmark: (id: LandmarkId) => void
+  clearLandmarks: () => void
+  setDepthHint: (id: LandmarkId, hint: DepthHint | null) => void
+  /**
+   * Staged pose solve from the landmarks (solver-spec §2–4), plus the camera from the cues when they have not
+   * been solved yet. One undo step covers pose, camera and the solve record; the pose stays fully editable.
+   */
+  solvePoseFromSketch: () => PoseSolveResult
 }
 
 export type Store = HistorySlice & SketchSlice & SceneSlice & BodySlice & PoseSlice & CameraSlice & ExportSlice & UiSlice & LibrarySlice
