@@ -1,0 +1,61 @@
+import {
+  JOINT_NAMES,
+  type BodyState,
+  type CameraState,
+  type ExportSettings,
+  type JointName,
+  type JointRotation,
+  type PoseState,
+  type SceneSettings,
+} from '../types/scene'
+import { DEFAULT_SENSOR_HEIGHT_MM } from '../lib/units'
+import { defaultPreset } from './presets'
+
+/** Portrait 2:3 suits full-body character reference. */
+export const DEFAULT_CANVAS_RATIO = 2 / 3
+export const DEFAULT_EXPORT_WIDTH_PX = 2000
+export const DEFAULT_FOCAL_MM = 50
+/** Until camera presets exist (Phase 4) every saved camera is "custom". */
+export const CUSTOM_CAMERA_PRESET = 'custom'
+
+export const defaultScene = (): SceneSettings => ({
+  canvasRatio: DEFAULT_CANVAS_RATIO,
+  groundPlane: true,
+  grid: true,
+  horizon: true,
+})
+
+export const defaultBody = (): BodyState => {
+  const p = defaultPreset()
+  return { presetId: p.id, modifiedFrom: null, sliders: { ...p.sliders }, locks: {}, asymmetry: {}, stylizedOverride: null }
+}
+
+export const zeroRotation = (): JointRotation => ({ rx: 0, ry: 0, rz: 0 })
+
+export const defaultJoints = (): Record<JointName, JointRotation> =>
+  Object.fromEntries(JOINT_NAMES.map((j) => [j, zeroRotation()])) as Record<JointName, JointRotation>
+
+export const defaultPose = (): PoseState => ({
+  joints: defaultJoints(),
+  rootTransform: { position: [0, 0, 0], rotation: [0, 0, 0] },
+  ikLocks: [],
+  jointLocks: [],
+  depthNudges: {},
+})
+
+/** Full-body framing of a 1.75 m figure at 50 mm. */
+export const defaultCamera = (): CameraState => ({
+  position: [0, 1.3, 4.8],
+  target: [0, 0.9, 0],
+  up: [0, 1, 0],
+  focal: DEFAULT_FOCAL_MM,
+  sensorHeight: DEFAULT_SENSOR_HEIGHT_MM,
+  roll: 0,
+  preset: CUSTOM_CAMERA_PRESET,
+})
+
+export const defaultExport = (): ExportSettings => ({
+  preset: 'clean',
+  namingTemplate: '{scene}',
+  settings: { widthPx: DEFAULT_EXPORT_WIDTH_PX },
+})

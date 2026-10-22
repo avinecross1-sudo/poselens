@@ -1,0 +1,14 @@
+{
+  "name": "poselens",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @poselens/desktop",
+    "build": "npm run build -w @poselens/desktop",
+    "test": "npm run test -w @poselens/desktop",
+    "typecheck": "npm run typecheck -w @poselens/desktop",
+    "postinstall": "node node_modules/electron/install.js"
+  }
+}
