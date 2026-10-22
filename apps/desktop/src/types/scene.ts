@@ -41,14 +41,56 @@ export interface JointRotation {
   rz: number
 }
 
-export interface BodySliders {
-  height: number
-  mass: number
-  muscle: number
-  softness: number
-  shoulderHipRatio: number
-}
+/** Every body slider, in panel order. Ranges, groups and neutral values live in state/bodySliders.ts. */
+export const BODY_SLIDER_KEYS = [
+  // Proportions
+  'height',
+  'headScale',
+  'torsoLength',
+  'legLength',
+  'armLength',
+  'shoulderHipRatio',
+  // Limbs
+  'forearmRatio',
+  'shinRatio',
+  'handSize',
+  'footSize',
+  'limbThickness',
+  // Shape / depth
+  'mass',
+  'muscle',
+  'softness',
+  'chestDepth',
+  'waist',
+  'hipDepth',
+  // Advanced
+  'neckLength',
+  'neckThickness',
+  'shoulderSlope',
+  'jointSize',
+] as const
 
+export type BodySliderKey = (typeof BODY_SLIDER_KEYS)[number]
+export type BodySliders = Record<BodySliderKey, number>
+
+/** Per-side body differences. Thickness keys are multipliers (1 = none); height keys are meters at 1.75 m. */
+export const ASYMMETRY_KEYS = [
+  'leftArmThickness',
+  'rightArmThickness',
+  'leftLegThickness',
+  'rightLegThickness',
+  'leftShoulderHeight',
+  'rightShoulderHeight',
+  'leftHipHeight',
+  'rightHipHeight',
+] as const
+
+export type AsymmetryKey = (typeof ASYMMETRY_KEYS)[number]
+
+/**
+ * Per-scene non-uniform scale applied above the root (the Phase 3 solve uses it to fit stylized art).
+ * `matrix` is 4x4 column-major (THREE.Matrix4.elements). Applied only while `acknowledged` is true.
+ */
 export interface StylizedOverride {
   matrix: number[]
   acknowledged: boolean
@@ -58,6 +100,7 @@ export interface BodyState {
   presetId: string
   modifiedFrom: string | null
   sliders: BodySliders
+  /** Slider keys, or `group:<groupId>`, that presets, blends and resets must not change. */
   locks: Record<string, boolean>
   asymmetry: Record<string, number>
   stylizedOverride: StylizedOverride | null
@@ -68,10 +111,19 @@ export interface RootTransform {
   rotation: Vec3
 }
 
+export const HAND_SHAPES = ['relaxed', 'open', 'fist', 'pointing', 'gripping'] as const
+export type HandShape = (typeof HAND_SHAPES)[number]
+
+export type Side = 'L' | 'R'
+
 export interface PoseState {
   joints: Record<JointName, JointRotation>
+  /** Finger shape per hand. Fingers are visual primitives under the hand node, not joints. */
+  hands: Record<Side, HandShape>
   rootTransform: RootTransform
+  /** Limb chains (IkChainId) whose joints are all locked. */
   ikLocks: string[]
+  /** Individually locked joints (JointName). */
   jointLocks: string[]
   depthNudges: Record<string, number>
 }

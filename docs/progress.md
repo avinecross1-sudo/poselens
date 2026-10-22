@@ -105,3 +105,82 @@
 - Export was verified in the renderer with a stubbed IPC bridge; Tram then confirmed a real export
   through the Electron folder dialog works.
 - Renderer bundle is ~1.6 MB unsplit (Three.js); fine for desktop, not optimised.
+
+## 2026-10-22 — Phase 2: Body & Pose Depth
+
+**Status: built, awaiting Tram's acceptance.** Build green, 86 vitest tests passing (34 before).
+
+### What was built
+1. **Slider taxonomy** (`src/state/bodySliders.ts`, `src/three/bodyRig.ts`): 21 sliders in four groups.
+   Proportions: height, head size, torso, legs, arms, shoulder:hip. Limbs: forearm:upper-arm and shin:thigh
+   split, hand size, foot size, limb thickness. Shape / Depth: mass, muscle, softness, chest depth, waist,
+   hip depth. Advanced: neck length, neck thickness, shoulder height, joint marker size. Proportion sliders
+   change segments relative to each other and the figure is rescaled so standing height always equals the
+   height slider. Per-slider and per-group locks, reset group, reset all. Seed presets gained the extra
+   sliders where they differ from neutral (Child, Chibi, Heroic and others) in `seeds/body-presets.json`.
+2. **Preset blend** A→B with live preview (one undo step per drag); "Save as custom preset" adds
+   "Modified from [A]" (numbered if taken) to the preset list. Custom presets persist in a user library.
+3. **Asymmetry**: L/R arm and leg thickness, L/R shoulder height, L/R hip height; symmetry toggle edits
+   both sides together. Only non-neutral values are saved.
+4. **Stylized override**: X/Y/Z scale matrix stored with an `acknowledged` flag; applied (above the root)
+   only once acknowledged; amber banner in the viewport while active, and a prompt for unacknowledged
+   overrides loaded from a file.
+5. **Locks**: per-joint locks and limb-chain locks (`ikLocks`). Locked joints keep their values through
+   rotate, reset, library apply, mirror, blend, foot presets, IK and body changes; locked joints show red
+   and get no gizmo.
+6. **IK** (`src/solve/ik.ts`, `src/three/ikHandles.ts`): cyan drag handles on wrists and ankles, per-chain
+   on/off. CCD per solver-spec (8 iterations max) with joint limits from `src/solve/jointLimits.ts`
+   clamped after every step. Each iteration first sets the elbow/knee bend by the law of cosines, because
+   plain CCD stalls on a straight hinge. Unreachable targets show "target out of reach".
+7. **Pose library** (`src/state/poseLibrary.ts`): 12 seed poses, search, tag filter, favorites (persisted).
+   Poses are grounded on apply (jump is lifted 0.35 m).
+8. **Mirror** and **pose blend** (A = current or library pose, B = library pose, slider).
+9. **Retargeting** (`src/solve/retarget.ts`): every body change keeps joint rotations, takes bone lengths
+   from the new body, and keeps a grounded pose on the ground. Warnings for joints outside limits, a
+   planted foot lifting off, or the body sinking into the floor. "Load onto current body" loads a scene's
+   pose and camera and retargets it onto the current body.
+10. **Hands and feet**: hand shapes relaxed / open / fist / pointing / gripping (finger primitives under
+    the hand node; `pose.hands` in metadata), foot presets flat / tiptoe / heel / pointed, toe direction.
+11. **Head-unit overlay** (`src/lib/measure.ts`, `src/three/overlays.ts`, `ViewportHud.tsx`): ruler with a
+    tick per head unit and "N heads · H m" label; readout of head unit, shoulder and hip width, and the
+    selected limb's bone lengths. Viewport-only, hidden in PNG export.
+12. **Gaze**: arrow and dashed sight line from the eyes along the head's forward axis. Viewport-only.
+- New IPC channels `library:load` / `library:save` write `library.json` in the app's userData folder.
+- Left panel is now Body / Pose tabs; picking a joint switches to Pose.
+
+### Acceptance checks
+- Athletic→Heavy blend: every slider and every segment size moves monotonically between the two
+  presets, all positive, height stays exact (`test/body.test.ts`).
+- IK never violates joint limits: 200 random targets across all four chains (`test/ik.test.ts`), and a
+  store-level IK drag.
+- Retarget: a library pose on every seed preset keeps rotations and stays grounded; airborne poses keep
+  their root; foot-lift and limit warnings fire (`test/pose.test.ts`). Loading onto a different body is
+  covered in `test/metadata.roundtrip.test.ts`.
+- Pose blend: endpoints exact, halfway is the per-joint midpoint, and every pair of library poses blends
+  inside joint limits.
+- Metadata round-trip still deep-equal with all Phase 2 fields; Phase 1 files load with neutral extras.
+- Checked by hand in the dev renderer: presets incl. Chibi (3.0 heads), head-unit ruler (Average 7.6
+  heads), gaze line, library poses (walk, run, crouch, jump, punch, kick, sit, lie, reach), IK drag on a
+  leg as one undo step, stylized override banner before and after acknowledging.
+
+### Assumptions
+- **Pose library joint data was authored by Claude** (degrees in `seeds/pose-library.json`, now
+  version 2). They are approximations meant to be tuned.
+- **Head-unit section restored to CLAUDE.md.** Session 0 logged adding it, but it was not in the file;
+  restored from the coordinator's description of the original.
+- Head sphere changed from r 0.105 to r 0.115 (crown height unchanged) so Realistic Average reads ~7.6
+  heads instead of 8.3.
+- Joint limits are approximate human ranges; the rotate gizmo and joint sliders may still go past them
+  (only IK is clamped), and the joint panel shows each axis's limit.
+- Pose blend moves limited joints per Euler channel (stays inside limits, bends the anatomical way);
+  free joints (hips) and the root use shortest-arc slerp. Hand shapes switch at the halfway point.
+- Hip-height asymmetry is capped at ±3 cm; beyond 2 cm one foot lifts and the warning appears.
+- Overlay toggles and the symmetry toggle are UI state, not saved in scenes.
+- Custom presets and favorites live in the user library, not in scene files; a scene whose custom preset
+  is missing still loads its exact slider values.
+
+### Stubbed or deferred
+- No root-transform UI yet (root moves only through grounding).
+- Ground-contact warnings are a Phase 2 retarget aid only; full balance (CoM, support polygon) is Phase 4.
+- `.claude/launch.json` and `.claude/vite.renderer.mjs` are local preview helpers (renderer without
+  Electron) and are not committed.

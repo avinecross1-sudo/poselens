@@ -63,10 +63,19 @@ Each limb segment = capsule geometry; joints = small spheres; torso = box/capsul
 head = sphere; hands/feet = small boxes.
 Body sliders drive bone scale + capsule radius. Presets are recipes of those values.
 
+## Head-unit & measurement overlay (Phase 2)
+- One head unit = crown (top of head) to chin. On the sphere head that is 2 × head radius.
+- Tick marks at every head unit from the crown down to the floor, with a total label
+  such as "7.5 heads". Realistic adult ≈ 7.5, heroic ≈ 8+, child ≈ 5–6, chibi ≈ 2–4.
+- Also shows standing height, shoulder width, hip width, and the bone lengths of the
+  selected limb.
+- Measured from the rest skeleton (not the posed figure), so numbers stay put while posing.
+- Viewport-only toggle. Never appears in exported PNGs.
+
 ## State shape (Zustand, single store, sliced)
 - scene:    canvasRatio, groundPlane, grid, sketchLayer
 - body:     presetId, modifiedFrom, sliders{}, locks{}, asymmetry{}, stylizedOverride
-- pose:     joints{}, rootTransform, ikLocks, jointLocks, depthNudges
+- pose:     joints{}, hands{}, rootTransform, ikLocks, jointLocks, depthNudges
 - camera:   position, target, up, focal, sensorHeight, roll, preset
 - sketch:   landmarks{}, horizon, vps[], solveStatus, confidence{}
 - balance:  supportPolygon, com, contactFlags, warnings

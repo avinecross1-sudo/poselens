@@ -1,1 +1,128 @@
-{  "version": 1,  "poses": [    { "id": "stand-relaxed",  "name": "Stand — Relaxed",   "tags": ["idle","neutral"] },    { "id": "stand-confident","name": "Stand — Confident", "tags": ["idle","hero"] },    { "id": "walk-1",         "name": "Walk — Contact",    "tags": ["locomotion"] },    { "id": "walk-2",         "name": "Walk — Passing",    "tags": ["locomotion"] },    { "id": "run-1",          "name": "Run — Contact",     "tags": ["locomotion","action"] },    { "id": "crouch",         "name": "Crouch",            "tags": ["action"] },    { "id": "jump",           "name": "Jump — Apex",       "tags": ["action"] },    { "id": "punch",          "name": "Punch",             "tags": ["combat","action"] },    { "id": "kick",           "name": "Kick",              "tags": ["combat","action"] },    { "id": "sit",            "name": "Sit — Chair",       "tags": ["idle"] },    { "id": "lie",            "name": "Lie — Ground",      "tags": ["idle"] },    { "id": "reach-up",       "name": "Reach — Up",        "tags": ["action"] }  ]}
+{
+  "version": 2,
+  "units": "degrees",
+  "notes": "Joint rotations are [rx, ry, rz] in degrees, Euler XYZ, keyed by hierarchy node. Joints left out are 0. Poses are grounded on apply (lowest body point to y = 0), then raised by lift (m). Rotations authored by Claude as approximations; adjust freely.",
+  "poses": [
+    {
+      "id": "stand-relaxed", "name": "Stand — Relaxed", "tags": ["idle", "neutral"], "hands": { "L": "relaxed", "R": "relaxed" },
+      "joints": {
+        "head": [3, 0, 0],
+        "upperArmL": [2, 0, 8], "upperArmR": [2, 0, -8],
+        "forearmL": [-10, 0, 0], "forearmR": [-10, 0, 0],
+        "thighL": [0, 0, 3], "thighR": [0, 0, -3],
+        "footL": [0, 8, -3], "footR": [0, -8, 3]
+      }
+    },
+    {
+      "id": "stand-confident", "name": "Stand — Confident", "tags": ["idle", "hero"], "hands": { "L": "fist", "R": "fist" },
+      "joints": {
+        "spine": [-3, 0, 0], "chest": [-6, 0, 0], "neck": [2, 0, 0], "head": [-6, 0, 0],
+        "shoulderL": [0, 0, -4], "shoulderR": [0, 0, 4],
+        "upperArmL": [4, 0, 14], "upperArmR": [4, 0, -14],
+        "forearmL": [-14, 0, 0], "forearmR": [-14, 0, 0],
+        "thighL": [0, 0, 7], "thighR": [0, 0, -7],
+        "footL": [0, 10, -7], "footR": [0, -10, 7]
+      }
+    },
+    {
+      "id": "walk-1", "name": "Walk — Contact", "tags": ["locomotion"], "hands": { "L": "relaxed", "R": "relaxed" },
+      "joints": {
+        "hips": [0, -5, 0], "chest": [0, 8, 0], "head": [2, -3, 0],
+        "upperArmL": [20, 0, 6], "upperArmR": [-20, 0, -6],
+        "forearmL": [-10, 0, 0], "forearmR": [-20, 0, 0],
+        "thighL": [-25, 0, 0], "shinL": [5, 0, 0], "footL": [-15, 0, 0],
+        "thighR": [15, 0, 0], "shinR": [15, 0, 0], "footR": [15, 0, 0], "toeR": [-30, 0, 0]
+      }
+    },
+    {
+      "id": "walk-2", "name": "Walk — Passing", "tags": ["locomotion"], "hands": { "L": "relaxed", "R": "relaxed" },
+      "joints": {
+        "head": [2, 0, 0],
+        "upperArmL": [-5, 0, 6], "upperArmR": [5, 0, -6],
+        "forearmL": [-15, 0, 0], "forearmR": [-12, 0, 0],
+        "thighL": [0, 0, 0], "shinL": [3, 0, 0], "footL": [-3, 0, 0],
+        "thighR": [-20, 0, 0], "shinR": [45, 0, 0], "footR": [10, 0, 0]
+      }
+    },
+    {
+      "id": "run-1", "name": "Run — Contact", "tags": ["locomotion", "action"], "hands": { "L": "fist", "R": "fist" },
+      "joints": {
+        "hips": [0, -8, 0], "spine": [10, 0, 0], "chest": [5, 12, 0], "neck": [-5, 0, 0], "head": [-8, -4, 0],
+        "upperArmL": [40, 0, 8], "upperArmR": [-50, 0, -8],
+        "forearmL": [-80, 0, 0], "forearmR": [-95, 0, 0],
+        "thighL": [-45, 0, 0], "shinL": [30, 0, 0], "footL": [-5, 0, 0],
+        "thighR": [25, 0, 0], "shinR": [70, 0, 0], "footR": [30, 0, 0]
+      }
+    },
+    {
+      "id": "crouch", "name": "Crouch", "tags": ["action"], "hands": { "L": "relaxed", "R": "relaxed" },
+      "joints": {
+        "spine": [25, 0, 0], "chest": [10, 0, 0], "neck": [-15, 0, 0], "head": [-15, 0, 0],
+        "upperArmL": [-40, 0, 10], "upperArmR": [-40, 0, -10],
+        "forearmL": [-70, 0, 0], "forearmR": [-70, 0, 0],
+        "thighL": [-100, 0, 0], "shinL": [120, 0, 0], "footL": [-20, 0, 0],
+        "thighR": [-100, 0, 0], "shinR": [120, 0, 0], "footR": [-20, 0, 0]
+      }
+    },
+    {
+      "id": "jump", "name": "Jump — Apex", "tags": ["action"], "hands": { "L": "open", "R": "open" }, "lift": 0.35,
+      "joints": {
+        "spine": [-5, 0, 0], "head": [-10, 0, 0],
+        "upperArmL": [-150, 0, 20], "upperArmR": [-150, 0, -20],
+        "forearmL": [-10, 0, 0], "forearmR": [-10, 0, 0],
+        "thighL": [-60, 0, 0], "shinL": [90, 0, 0], "footL": [30, 0, 0],
+        "thighR": [-60, 0, 0], "shinR": [90, 0, 0], "footR": [30, 0, 0]
+      }
+    },
+    {
+      "id": "punch", "name": "Punch", "tags": ["combat", "action"], "hands": { "L": "fist", "R": "fist" },
+      "joints": {
+        "hips": [0, 20, 0], "chest": [0, 15, 0], "head": [5, -20, 0],
+        "upperArmL": [-40, 0, 12], "forearmL": [-125, 0, 0],
+        "upperArmR": [-85, 0, -5], "forearmR": [-5, 0, 0],
+        "thighL": [-20, 0, 0], "shinL": [15, 0, 0], "footL": [5, -10, 0],
+        "thighR": [20, 0, 0], "shinR": [20, 0, 0], "footR": [0, 0, 0], "toeR": [-30, 0, 0]
+      }
+    },
+    {
+      "id": "kick", "name": "Kick", "tags": ["combat", "action"], "hands": { "L": "fist", "R": "fist" },
+      "joints": {
+        "spine": [-10, 0, 0], "chest": [-5, 0, 0], "head": [10, 0, 0],
+        "upperArmL": [-40, 0, 15], "upperArmR": [-40, 0, -15],
+        "forearmL": [-120, 0, 0], "forearmR": [-120, 0, 0],
+        "thighL": [-10, 0, 0], "shinL": [15, 0, 0], "footL": [-5, 0, 0],
+        "thighR": [-90, 0, 0], "shinR": [20, 0, 0], "footR": [-20, 0, 0], "toeR": [-40, 0, 0]
+      }
+    },
+    {
+      "id": "sit", "name": "Sit — Chair", "tags": ["idle"], "hands": { "L": "relaxed", "R": "relaxed" },
+      "joints": {
+        "spine": [5, 0, 0], "head": [3, 0, 0],
+        "upperArmL": [-30, 0, 8], "upperArmR": [-30, 0, -8],
+        "forearmL": [-60, 0, 0], "forearmR": [-60, 0, 0],
+        "thighL": [-90, 0, 4], "shinL": [90, 0, 0], "footL": [0, 0, 0],
+        "thighR": [-90, 0, -4], "shinR": [90, 0, 0], "footR": [0, 0, 0]
+      }
+    },
+    {
+      "id": "lie", "name": "Lie — Ground", "tags": ["idle"], "hands": { "L": "relaxed", "R": "relaxed" },
+      "joints": {
+        "hips": [-90, 0, 0], "head": [-5, 10, 0],
+        "upperArmL": [0, 0, 12], "upperArmR": [0, 0, -12],
+        "forearmL": [-10, 0, 0], "forearmR": [-10, 0, 0],
+        "thighL": [-20, 0, 4], "shinL": [35, 0, 0], "footL": [25, 0, 0],
+        "thighR": [0, 0, -4], "shinR": [3, 0, 0], "footR": [30, 0, 0]
+      }
+    },
+    {
+      "id": "reach-up", "name": "Reach — Up", "tags": ["action"], "hands": { "L": "open", "R": "open" },
+      "joints": {
+        "spine": [-5, 0, 0], "chest": [-8, 0, 0], "neck": [-10, 0, 0], "head": [-25, 0, 0],
+        "upperArmL": [-165, 0, 10], "upperArmR": [-150, 0, -15],
+        "forearmL": [-5, 0, 0], "forearmR": [-15, 0, 0],
+        "footL": [35, 0, 0], "toeL": [-35, 0, 0],
+        "footR": [35, 0, 0], "toeR": [-35, 0, 0]
+      }
+    }
+  ]
+}

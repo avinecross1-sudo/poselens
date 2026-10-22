@@ -6,6 +6,8 @@ const api: PoseLensApi = {
   loadScene: () => ipcRenderer.invoke(IPC.sceneLoad),
   writeExport: (req) => ipcRenderer.invoke(IPC.exportWrite, req),
   appInfo: () => ipcRenderer.invoke(IPC.appInfo),
+  loadLibrary: () => ipcRenderer.invoke(IPC.libraryLoad),
+  saveLibrary: (lib) => ipcRenderer.invoke(IPC.librarySave, lib),
 }
 
 contextBridge.exposeInMainWorld('poselens', api)

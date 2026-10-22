@@ -3,10 +3,12 @@ import {
   type BodyState,
   type CameraState,
   type ExportSettings,
+  type HandShape,
   type JointName,
   type JointRotation,
   type PoseState,
   type SceneSettings,
+  type Side,
 } from '../types/scene'
 import { DEFAULT_SENSOR_HEIGHT_MM } from '../lib/units'
 import { defaultPreset } from './presets'
@@ -35,8 +37,12 @@ export const zeroRotation = (): JointRotation => ({ rx: 0, ry: 0, rz: 0 })
 export const defaultJoints = (): Record<JointName, JointRotation> =>
   Object.fromEntries(JOINT_NAMES.map((j) => [j, zeroRotation()])) as Record<JointName, JointRotation>
 
+export const DEFAULT_HAND_SHAPE: HandShape = 'relaxed'
+export const defaultHands = (): Record<Side, HandShape> => ({ L: DEFAULT_HAND_SHAPE, R: DEFAULT_HAND_SHAPE })
+
 export const defaultPose = (): PoseState => ({
   joints: defaultJoints(),
+  hands: defaultHands(),
   rootTransform: { position: [0, 0, 0], rotation: [0, 0, 0] },
   ikLocks: [],
   jointLocks: [],

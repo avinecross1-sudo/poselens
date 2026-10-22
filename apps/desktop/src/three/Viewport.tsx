@@ -5,8 +5,11 @@ import { appStore, useStore } from '../state/store'
 import { Toggle } from '../ui/Toggle'
 import { applyShotCamera, CAMERA_NEAR_M, createEditorCamera, createShotCamera } from './cameraRig'
 import { createHelpers } from './helpers'
+import { createIkHandles } from './ikHandles'
 import { createJointGizmo } from './jointGizmo'
 import { createMannequin } from './mannequin'
+import { createOverlays } from './overlays'
+import { ViewportHud } from './ViewportHud'
 import { startSceneSync } from './sceneSync'
 import { setViewportHandle } from './viewportHandle'
 
@@ -58,7 +61,9 @@ export function Viewport() {
     scene.add(key)
 
     const mannequin = createMannequin()
-    scene.add(mannequin.root)
+    scene.add(mannequin.group)
+    const overlays = createOverlays(mannequin.nodes.head)
+    scene.add(overlays.headUnits)
     const helpers = createHelpers()
     scene.add(helpers.group)
 
@@ -81,11 +86,20 @@ export function Viewport() {
     })
     scene.add(gizmo.helper)
 
+    const ikHandles = createIkHandles(mannequin, activeCam, canvas, {
+      onDrag: (chain, p) => appStore.getState().solveIkTarget(chain, [p.x, p.y, p.z], { preview: true }),
+      onDragEnd: () => appStore.getState().endGesture(),
+      onDraggingChanged: (d) => (orbit.enabled = !d && !isShot()),
+    })
+    scene.add(ikHandles.group)
+
     let ratio = appStore.getState().scene.canvasRatio
     const stopSync = startSceneSync(appStore, {
       mannequin,
       helpers,
       gizmo,
+      overlays,
+      ikHandles,
       onShotCameraChange: (s) => {
         ratio = s.scene.canvasRatio
         applyShotCamera(shotCam, s.camera, ratio)
@@ -133,6 +147,8 @@ export function Viewport() {
       shotFrustum.visible = !shot
       helpers.horizon.visible = shot && appStore.getState().scene.horizon
       helpers.updateHorizon(shotCam.position)
+      ikHandles.update()
+      overlays.follow(mannequin.root.position, mannequin.root.rotation.y)
       renderer.render(scene, shot ? shotCam : editorCam)
     }
     tick()
@@ -144,7 +160,7 @@ export function Viewport() {
           camera: appStore.getState().camera,
           widthPx,
           heightPx,
-          hide: [helpers.group, gizmo.helper, shotFrustum],
+          hide: [helpers.group, gizmo.helper, shotFrustum, overlays.headUnits, overlays.gaze, ikHandles.group],
         }),
     })
 
@@ -153,6 +169,8 @@ export function Viewport() {
       setViewportHandle(null)
       stopSync()
       gizmo.dispose()
+      ikHandles.dispose()
+      overlays.dispose()
       orbit.dispose()
       shotFrustum.dispose()
       helpers.dispose()
@@ -177,9 +195,10 @@ export function Viewport() {
           />
         </div>
         <span className="rounded bg-black/50 px-2 py-1 text-xs text-neutral-300">
-          {selectedJoint ? `Joint: ${selectedJoint}` : 'Click a joint to pose'}
+          {selectedJoint ? `Joint: ${selectedJoint}` : 'Click a joint to pose, or drag a cyan handle'}
         </span>
       </div>
+      <ViewportHud />
     </div>
   )
 }

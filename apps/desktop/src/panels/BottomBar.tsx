@@ -32,6 +32,14 @@ export function BottomBar({ status, onResult }: { status: FileResult | null; onR
       <button type="button" className={btn} onClick={run(loadScene)} title="Ctrl+O">
         Load scene
       </button>
+      <button
+        type="button"
+        className={btn}
+        onClick={run(() => loadScene({ keepBody: true }))}
+        title="Load pose and camera from a scene, retargeted onto the current body"
+      >
+        Load onto current body
+      </button>
       {status && status.ok !== null && (
         <span className={`ml-auto truncate text-xs ${status.ok ? 'text-neutral-400' : 'text-red-400'}`}>{status.message}</span>
       )}

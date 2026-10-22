@@ -7,6 +7,7 @@ import { createPoseSlice } from './poseSlice'
 import { createSceneSlice } from './sceneSlice'
 import type { Store } from './types'
 import { createUiSlice } from './uiSlice'
+import { createLibrarySlice } from './librarySlice'
 
 /** Factory so tests get an isolated store. */
 export const createAppStore = () =>
@@ -18,6 +19,7 @@ export const createAppStore = () =>
     ...createCameraSlice(...a),
     ...createExportSlice(...a),
     ...createUiSlice(...a),
+    ...createLibrarySlice(...a),
   }))
 
 export type AppStore = ReturnType<typeof createAppStore>

@@ -5,6 +5,8 @@ export const IPC = {
   sceneLoad: 'scene:load',
   exportWrite: 'export:write',
   appInfo: 'app:info',
+  libraryLoad: 'library:load',
+  librarySave: 'library:save',
 } as const
 
 export type Canceled = { canceled: true }
@@ -29,9 +31,19 @@ export interface AppInfo {
   version: string
 }
 
+/** User library (custom body presets, favorite poses), stored by main in the app's userData folder. */
+export interface UserLibraryFile {
+  version: 1
+  customPresets: { id: string; name: string; sliders: Record<string, number>; modifiedFrom?: string }[]
+  favoritePoses: string[]
+}
+
 export interface PoseLensApi {
   saveScene(req: SceneSaveRequest): Promise<SceneSaveResult>
   loadScene(): Promise<SceneLoadResult>
   writeExport(req: ExportWriteRequest): Promise<ExportWriteResult>
   appInfo(): Promise<AppInfo>
+  /** null when nothing has been saved yet. Unvalidated JSON. */
+  loadLibrary(): Promise<unknown>
+  saveLibrary(lib: UserLibraryFile): Promise<void>
 }

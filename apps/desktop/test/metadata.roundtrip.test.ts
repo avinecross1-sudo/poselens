@@ -22,6 +22,15 @@ function editedStore(): AppStore {
   s.setCanvasRatio(16 / 9)
   s.setSceneFlag('grid', false)
   s.setExportWidth(3000)
+  // Phase 2 state
+  s.setBodySlider('headScale', 1.1)
+  s.toggleBodyLock('height')
+  s.setAsymmetry('leftArmThickness', 1.15, false)
+  s.setStylizedScale([1.1, 1, 0.9])
+  s.acknowledgeStylized(true)
+  s.setHandShape('R', 'pointing')
+  s.toggleJointLock('head')
+  s.toggleChainLock('legL')
   return store
 }
 
@@ -84,5 +93,42 @@ describe('metadata round-trip', () => {
     expect(() => migrate('nope')).toThrow(SceneFormatError)
     expect(() => migrate({})).toThrow(/schemaVersion/)
     expect(() => migrate({ schemaVersion: SCHEMA_VERSION + 1 })).toThrow(/reads up to/)
+  })
+})
+
+describe('metadata (Phase 2 fields)', () => {
+  it('saves every body slider, asymmetry, stylized override, hands and locks', () => {
+    const scene = save(editedStore())
+    expect(Object.keys(scene.body.sliders)).toHaveLength(21)
+    expect(scene.body.sliders.headScale).toBe(1.1)
+    expect(scene.body.locks).toEqual({ height: true })
+    expect(scene.body.asymmetry).toEqual({ leftArmThickness: 1.15 })
+    expect(scene.body.stylizedOverride).toEqual({ matrix: [1.1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0.9, 0, 0, 0, 0, 1], acknowledged: true })
+    expect(scene.pose.hands).toEqual({ L: 'relaxed', R: 'pointing' })
+    expect(scene.pose.jointLocks).toEqual(['head'])
+    expect(scene.pose.ikLocks).toEqual(['legL'])
+  })
+
+  it('a Phase 1 file (five sliders, no hands) loads with neutral extras', () => {
+    const { doc } = fromSceneV1({
+      schemaVersion: 1,
+      body: { presetId: 'athletic', sliders: { height: 1.8, mass: 0.55, muscle: 0.8, softness: 0.2, shoulderHipRatio: 1.3 } },
+      pose: { joints: {} },
+    })
+    expect(doc.body.sliders.headScale).toBe(1)
+    expect(doc.body.sliders.height).toBe(1.8)
+    expect(doc.pose.hands).toEqual({ L: 'relaxed', R: 'relaxed' })
+  })
+
+  it('loading onto a different body retargets the pose and keeps that body', async () => {
+    const { retargetDocToBody } = await import('../src/export/sceneFile')
+    const file = save(editedStore())
+    const other = createAppStore()
+    other.getState().applyPreset('chibi')
+    const { doc } = fromSceneV1(throughDisk(file))
+    const { doc: out } = retargetDocToBody(doc, other.getState().body)
+    expect(out.body).toEqual(other.getState().body)
+    expect(out.pose.joints).toEqual(doc.pose.joints)
+    expect(out.camera).toEqual(doc.camera)
   })
 })

@@ -49,3 +49,17 @@ Include `"schemaVersion": 1`. Migrate on load if version differs.
 - Until camera presets exist, `camera.preset` is `"custom"`.
 - `sketch`, `balance` and `variants` are written as empty defaults until their phases.
 - Missing fields fall back to defaults on load; a `schemaVersion` newer than the app is rejected.
+
+## Notes (Phase 2)
+Still `schemaVersion: 1`: every Phase 2 field is additive and Phase 1 files load unchanged.
+- `body.sliders` holds all 21 sliders (`BODY_SLIDER_KEYS` in `src/types/scene.ts`), grouped as
+  Proportions, Limbs, Shape / Depth and Advanced. Missing sliders load at their neutral value.
+- `body.locks` keys are slider names or `group:<proportions|limbs|shape|advanced>`.
+- `body.asymmetry` keys: `left|rightArmThickness`, `left|rightLegThickness` (multipliers, 1 = none),
+  `left|rightShoulderHeight`, `left|rightHipHeight` (meters at 1.75 m). Only non-neutral keys are written.
+- `body.stylizedOverride.matrix` is a 4x4 column-major matrix (THREE.Matrix4.elements), applied above
+  the root only while `acknowledged` is true.
+- `body.presetId` may be a user preset id (`custom-…`) with `modifiedFrom` naming its base preset.
+  User presets live in the app's user library, not in the scene file.
+- `pose.hands` = `{ "L": shape, "R": shape }`, shape one of `relaxed | open | fist | pointing | gripping`.
+- `pose.jointLocks` lists joint names; `pose.ikLocks` lists locked limb chains (`armL`, `armR`, `legL`, `legR`).

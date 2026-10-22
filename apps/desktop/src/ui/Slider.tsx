@@ -17,6 +17,8 @@ export interface SliderProps {
   onChange: (value: number, preview: boolean) => void
   /** Drag released; ends the undo gesture. */
   onCommit: () => void
+  /** Locked controls show their value but cannot change. */
+  disabled?: boolean
 }
 
 const identity = (v: number): number => v
@@ -33,6 +35,7 @@ export function Slider({
   fromDisplay = identity,
   onChange,
   onCommit,
+  disabled = false,
 }: SliderProps) {
   const shown = toDisplay(value)
   const [draft, setDraft] = useState(shown.toFixed(decimals))
@@ -45,13 +48,14 @@ export function Slider({
   }
 
   return (
-    <label className="block select-none py-1 text-xs">
+    <label className={`block select-none py-1 text-xs ${disabled ? 'opacity-50' : ''}`}>
       <div className="mb-0.5 flex items-center justify-between text-neutral-400">
         <span>{label}</span>
         <span className="flex items-center gap-1">
           <input
             className="w-16 rounded bg-neutral-800 px-1 py-0.5 text-right text-neutral-200 outline-none focus:ring-1 focus:ring-sky-500"
             value={draft}
+            disabled={disabled}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commitDraft}
             onKeyDown={(e) => e.key === 'Enter' && commitDraft()}
@@ -66,6 +70,7 @@ export function Slider({
         max={max}
         step={step}
         value={Math.min(max, Math.max(min, shown))}
+        disabled={disabled}
         onChange={(e) => onChange(fromDisplay(Number(e.target.value)), true)}
         onPointerUp={onCommit}
         onKeyUp={onCommit}

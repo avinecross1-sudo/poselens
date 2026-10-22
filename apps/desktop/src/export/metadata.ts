@@ -1,7 +1,10 @@
 // State <-> SceneV1 (docs/metadata-schema.md). Pure functions: no store, no I/O.
 import {
+  BODY_SLIDER_KEYS,
+  HAND_SHAPES,
   JOINT_NAMES,
   SCHEMA_VERSION,
+  type HandShape,
   type BalanceMeta,
   type BodySliders,
   type BodyState,
@@ -93,13 +96,9 @@ function readBody(v: unknown): BodyState {
   const d = defaultBody()
   const b = obj(v)
   const s = obj(b['sliders'])
-  const sliders: BodySliders = {
-    height: num(s['height'], d.sliders.height),
-    mass: num(s['mass'], d.sliders.mass),
-    muscle: num(s['muscle'], d.sliders.muscle),
-    softness: num(s['softness'], d.sliders.softness),
-    shoulderHipRatio: num(s['shoulderHipRatio'], d.sliders.shoulderHipRatio),
-  }
+  // Phase 1 files carry only the five overall sliders; the rest fall back to the default body,
+  // whose extra sliders are neutral, so old files load exactly as they looked.
+  const sliders = Object.fromEntries(BODY_SLIDER_KEYS.map((k) => [k, num(s[k], d.sliders[k])])) as BodySliders
   const so = b['stylizedOverride']
   return {
     presetId: str(b['presetId'], d.presetId),
@@ -124,8 +123,12 @@ function readPose(v: unknown): PoseState {
     joints[name] = { rx: num(r['rx'], 0), ry: num(r['ry'], 0), rz: num(r['rz'], 0) }
   }
   const rt = obj(p['rootTransform'])
+  const h = obj(p['hands'])
+  const hand = (v: unknown, fallback: HandShape): HandShape =>
+    typeof v === 'string' && (HAND_SHAPES as readonly string[]).includes(v) ? (v as HandShape) : fallback
   return {
     joints,
+    hands: { L: hand(h['L'], d.hands.L), R: hand(h['R'], d.hands.R) },
     rootTransform: { position: vec3(rt['position'], d.rootTransform.position), rotation: vec3(rt['rotation'], d.rootTransform.rotation) },
     ikLocks: strArray(p['ikLocks']),
     jointLocks: strArray(p['jointLocks']),

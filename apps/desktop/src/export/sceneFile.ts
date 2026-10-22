@@ -3,7 +3,10 @@ import { appStore } from '../state/store'
 import { snapshotDoc } from '../state/historySlice'
 import { getViewportHandle } from '../three/viewportHandle'
 import { exportHeightPx, fromSceneV1, toSceneV1 } from './metadata'
-import type { SceneV1 } from '../types/scene'
+import type { BodyState, SceneV1 } from '../types/scene'
+import type { Doc } from '../state/types'
+import { rigOf, stylizeOf } from '../state/rigOf'
+import { retargetPose } from '../solve/retarget'
 
 let versionPromise: Promise<string> | null = null
 const appVersion = (): Promise<string> => (versionPromise ??= window.poselens.appInfo().then((i) => i.version))
@@ -29,15 +32,28 @@ export function sceneNameFromPath(path: string): string {
   return file.replace(/(\.scene)?\.json$/i, '') || 'Untitled'
 }
 
-export async function loadScene(): Promise<FileResult> {
+/**
+ * Puts a loaded scene onto a different body: the pose keeps its rotations, bone lengths come from
+ * `body`, and the root is re-grounded. Returns the retargeted doc and any warnings.
+ */
+export function retargetDocToBody(doc: Doc, body: BodyState): { doc: Doc; warnings: string[] } {
+  const r = retargetPose(doc.pose, rigOf(doc.body), rigOf(body), { from: stylizeOf(doc.body), to: stylizeOf(body) })
+  return { doc: { ...doc, body, pose: r.pose }, warnings: r.warnings }
+}
+
+/** keepBody: load pose, camera and scene settings, but keep the current body and retarget onto it. */
+export async function loadScene(opts: { keepBody?: boolean } = {}): Promise<FileResult> {
   const res = await window.poselens.loadScene()
   if ('canceled' in res) return { ok: null }
   try {
-    const { doc, exportSettings } = fromSceneV1(res.scene)
+    const loaded = fromSceneV1(res.scene)
     const s = appStore.getState()
+    const { doc, warnings } = opts.keepBody ? retargetDocToBody(loaded.doc, s.body) : { doc: loaded.doc, warnings: [] }
     s.replaceDoc(doc)
-    appStore.setState({ exportSettings, sceneName: sceneNameFromPath(res.path), selectedJoint: null })
-    return { ok: true, message: `Loaded ${res.path}` }
+    appStore.setState({ exportSettings: loaded.exportSettings, sceneName: sceneNameFromPath(res.path), selectedJoint: null })
+    s.setPoseWarnings(warnings)
+    if (warnings.length) return { ok: false, message: `Loaded onto current body with warnings: ${warnings.join('; ')}` }
+    return { ok: true, message: opts.keepBody ? `Loaded ${res.path} onto the current body` : `Loaded ${res.path}` }
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) }
   }

@@ -58,3 +58,13 @@ export async function writeExportFolder(
   return dir
 }
 
+
+/** null when the file does not exist yet; other read or parse errors propagate. */
+export async function readJsonIfExists(path: string): Promise<unknown> {
+  try {
+    return await readJson(path)
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw e
+  }
+}

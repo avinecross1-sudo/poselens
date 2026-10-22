@@ -4,6 +4,7 @@ import { BottomBar } from './panels/BottomBar'
 import { LeftPanel } from './panels/LeftPanel'
 import { RightPanel } from './panels/RightPanel'
 import { appStore } from './state/store'
+import { startLibraryPersistence } from './state/libraryPersistence'
 import { Viewport } from './three/Viewport'
 
 const isTyping = (t: EventTarget | null): boolean =>
@@ -11,6 +12,8 @@ const isTyping = (t: EventTarget | null): boolean =>
 
 export function App() {
   const [status, setStatus] = useState<FileResult | null>(null)
+
+  useEffect(() => startLibraryPersistence(appStore), [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -32,8 +35,10 @@ export function App() {
   }, [])
 
   return (
-    <div className="grid h-screen grid-cols-[280px_1fr_300px] grid-rows-[1fr_auto]">
-      <LeftPanel />
+    <div className="grid h-screen grid-cols-[300px_1fr_300px] grid-rows-[1fr_auto]">
+      <div className="min-h-0">
+        <LeftPanel />
+      </div>
       <main className="min-h-0 min-w-0">
         <Viewport />
       </main>
