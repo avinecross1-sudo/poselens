@@ -1,4 +1,4 @@
-import { loadScene, saveScene, type FileResult } from '../export/sceneFile'
+import { loadScene, reimportExport, saveScene, type FileResult } from '../export/sceneFile'
 import { useStore } from '../state/store'
 
 const btn = 'rounded px-3 py-1 text-xs bg-neutral-800 text-neutral-200 hover:bg-neutral-700 disabled:opacity-40 disabled:hover:bg-neutral-800'
@@ -39,6 +39,9 @@ export function BottomBar({ status, onResult }: { status: FileResult | null; onR
         title="Load pose and camera from a scene, retargeted onto the current body"
       >
         Load onto current body
+      </button>
+      <button type="button" className={btn} onClick={run(reimportExport)} title="Open an exported PNG and restore the scene it was made from">
+        Re-import PNG
       </button>
       {status && status.ok !== null && (
         <span className={`ml-auto truncate text-xs ${status.ok ? 'text-neutral-400' : 'text-red-400'}`}>{status.message}</span>

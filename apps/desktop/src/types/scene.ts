@@ -143,12 +143,44 @@ export interface SceneSettings {
   groundPlane: boolean
   grid: boolean
   horizon: boolean
+  /** Contact shadow under the figure (viewport, and PNG export when the export settings ask for it). */
+  groundShadow: boolean
+}
+
+/** Export looks: Clean = figure as drawn; Lineart = black outlines; Flat silhouette = solid fill; Shaded = three-value blocks. */
+export const EXPORT_PRESETS = ['clean', 'lineart', 'silhouette', 'shaded'] as const
+export type ExportPreset = (typeof EXPORT_PRESETS)[number]
+
+/** viewport = the whole shot frame; bounds = cropped to the figure plus a margin; fixed = a set pixel canvas. */
+export const EXPORT_FRAMINGS = ['viewport', 'bounds', 'fixed'] as const
+export type ExportFraming = (typeof EXPORT_FRAMINGS)[number]
+
+export interface ExportOptions {
+  /** Width of the full shot frame (viewport and bounds framing). */
+  widthPx: number
+  /** Draw the ground grid into the PNG. */
+  grid: boolean
+  /** Draw the ground contact shadow into the PNG. */
+  shadow: boolean
+  framing: ExportFraming
+  /** Canvas size for fixed framing; the shot is fitted inside it at the camera's vertical field of view. */
+  fixedWidthPx: number
+  fixedHeightPx: number
+  /** Bounds framing: margin around the figure as a fraction of its larger side. */
+  boundsMargin: number
 }
 
 export interface ExportSettings {
-  preset: string
+  preset: ExportPreset
+  /** File base name; tokens {scene}, {variant}, {preset}, {date}, {n} (next free number). */
   namingTemplate: string
-  settings: { widthPx: number }
+  settings: ExportOptions
+}
+
+/** Tags and notes on a scene (saved as the file's top-level `tags` / `notes`). */
+export interface SceneMeta {
+  tags: string[]
+  notes: string
 }
 
 // ---- Types for later phases (no slices yet; written as empty defaults) ----
@@ -177,6 +209,7 @@ export interface SketchMeta {
   solve: { settings: Record<string, unknown>; confidence: Record<string, ConfidenceLevel>; baked: boolean }
 }
 
+/** Derived on save from body + pose; ignored on load. */
 export interface BalanceMeta {
   com: Vec3 | null
   supportPolygon: Vec2[]
@@ -184,16 +217,27 @@ export interface BalanceMeta {
   warnings: string[]
 }
 
+/** A named shot: camera + pose snapshot inside one scene (2–4 per scene). */
 export interface Variant {
   id: string
   name: string
-  camera: Partial<CameraState>
-  pose: Partial<PoseState>
+  camera: CameraState
+  pose: PoseState
+}
+
+export interface ClipboardProvenance {
+  sceneName: string
+  /** ISO time. */
+  copiedAt: string
+  /** Body preset the source scene used (for "Body from Heroic in Scene A"). */
+  presetId: string
+  /** Source body sliders and asymmetry, so a pasted pose can be retargeted from the body it was posed on. */
+  sourceBody: Pick<BodyState, 'sliders' | 'asymmetry' | 'stylizedOverride'>
 }
 
 export interface ClipboardEntry<T> {
   value: T
-  provenance: { sceneName: string; copiedAt: string }
+  provenance: ClipboardProvenance
 }
 
 export interface ClipboardState {
@@ -208,7 +252,7 @@ export interface SceneV1 {
   schemaVersion: typeof SCHEMA_VERSION
   app: { name: 'PoseLens'; version: string }
   canvas: { aspect: number; widthPx: number; heightPx: number }
-  scene: { groundPlane: boolean; grid: boolean; horizon: boolean }
+  scene: { groundPlane: boolean; grid: boolean; horizon: boolean; groundShadow: boolean }
   body: BodyState
   pose: PoseState
   camera: CameraState & { aspect: number }
@@ -218,4 +262,6 @@ export interface SceneV1 {
   export: ExportSettings
   tags: string[]
   notes: string
+  /** Scene name at save/export time (Phase 4; optional, older files take it from the file path). */
+  name?: string
 }

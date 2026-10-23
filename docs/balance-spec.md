@@ -53,3 +53,24 @@ Applied on top of the default ratios, then renormalized so all ratios sum to 1.0
 - Support polygon: semi-transparent fill on ground plane.
 - Contact points: small dots at each detected contact.
 - Lean indicator: arrow from CoM to hull centroid, scaled by distance.
+
+## As implemented (Phase 4)
+Code: `src/lib/balance.ts` (pure), `src/state/balanceSlice.ts` (store sync), `src/three/balanceOverlay.ts` (viewport).
+- Contact samples per foot: inner and outer sole corners of the heel (back of the foot box), the ball (back edge of the
+  toe box) and the toe tip (front of the toe box), so tiptoe keeps ball and toe and lifts the heel. A part is in contact
+  when either corner is below 2 cm; planted / edge / floating count parts.
+- Segment centroids: capsule midpoints, box and sphere centres. The foot's ratio is split 80 / 20 between the foot box
+  and the toe box. Shoulders and the neck carry no mass of their own (neck is in the head ratio). The stylized override
+  applies to the centroids like to the figure.
+- CoM outside: distance from the CoM's ground point to the convex hull (a segment or a point when the contacts are
+  collinear) > 2 cm. Warning text: `CoM outside support polygon by N cm`; with no contact: `No ground contact`.
+- Feet sliding is checked between consecutive updates of a live drag (same body): a foot planted before and after whose
+  contact centre moved > 1 mm gives `Left/Right foot sliding`. The warning stays until the next edit outside a drag.
+- Weight shift: the line from the CoM's ground point to the closest point of the polygon is drawn when outside.
+  Weight per foot = the CoM's position along the line between the two feet's contact centres (100% on the only foot down).
+- Lean indicator: arrow on the ground from the CoM's ground point to the polygon centroid; the HUD reads the lean angle
+  (atan of that distance over CoM height) and its direction in the figure's own frame.
+- With the default model the mass slider alone moves the CoM by about 1–2 cm over its whole range (more torso mass lifts
+  it toward the hips). Head size moves it much more (Chibi CoM sits about 4% of height higher than Realistic Average).
+- Viewport: CoM sphere and plumb line (green, red when outside, amber without contact), polygon fill and outline, contact
+  dots, lean arrow (yellow), weight-shift line (pink). `CoM outside` and `sliding` warnings show even with the overlay off.

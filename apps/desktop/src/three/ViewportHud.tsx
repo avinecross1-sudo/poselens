@@ -4,7 +4,9 @@ import { useMemo } from 'react'
 import { limbLengths, measure } from '../lib/measure'
 import { rigOf } from '../state/rigOf'
 import { useStore } from '../state/store'
-import type { Overlays } from '../state/types'
+import type { Overlays, ViewLook } from '../state/types'
+import { Toggle } from '../ui/Toggle'
+import { alwaysShownBalanceWarning, leanLabel, type FootState } from '../lib/balance'
 import { ReviewNext } from '../ui/ReviewNext'
 
 const CM_PER_M = 100
@@ -15,7 +17,21 @@ const OVERLAY_TOGGLES: readonly { key: keyof Overlays; label: string }[] = [
   { key: 'gaze', label: 'Gaze' },
   { key: 'ikHandles', label: 'IK handles' },
   { key: 'confidence', label: 'Confidence' },
+  { key: 'balance', label: 'Balance' },
+  { key: 'negativeSpace', label: 'Negative space' },
+  { key: 'occlusion', label: 'Hidden parts' },
+  { key: 'lensGuide', label: 'Lens' },
 ]
+
+const LOOK_OPTIONS: readonly { value: ViewLook; label: string }[] = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'silhouette', label: 'Silhouette' },
+  { value: 'values', label: 'Values' },
+  { value: 'depth', label: 'Depth' },
+]
+const PERCENT = 100
+const STATE_LABEL: Record<FootState, string> = { planted: 'planted', edge: 'on an edge', floating: 'in the air' }
+
 
 export function ViewportHud() {
   const body = useStore((s) => s.body)
@@ -24,6 +40,12 @@ export function ViewportHud() {
   const selectedJoint = useStore((s) => s.selectedJoint)
   const warnings = useStore((s) => s.poseWarnings)
   const acknowledgeStylized = useStore((s) => s.acknowledgeStylized)
+  const viewLook = useStore((s) => s.viewLook)
+  const setViewLook = useStore((s) => s.setViewLook)
+  const balance = useStore((s) => s.balance)
+  const rootYaw = useStore((s) => s.pose.rootTransform.rotation[1])
+  const balanceWarnings = (balance?.warnings ?? []).filter((w) => overlays.balance || alwaysShownBalanceWarning(w))
+  const lean = balance ? leanLabel(balance, rootYaw) : null
 
   const rig = useMemo(() => rigOf(body), [body])
   const m = useMemo(() => measure(rig), [rig])
@@ -32,7 +54,8 @@ export function ViewportHud() {
 
   return (
     <>
-      <div className="pointer-events-auto absolute right-3 top-3 flex gap-1 text-xs">
+      <div className="pointer-events-auto absolute right-3 top-3 flex max-w-[60%] flex-col items-end gap-1 text-xs">
+      <div className="flex flex-wrap justify-end gap-1">
         {OVERLAY_TOGGLES.map((t) => (
           <button
             key={t.key}
@@ -46,6 +69,32 @@ export function ViewportHud() {
           </button>
         ))}
       </div>
+      <div title="Readability look (viewport only; export uses its own preset)">
+        <Toggle options={LOOK_OPTIONS} value={viewLook} onChange={setViewLook} />
+      </div>
+      </div>
+
+      {overlays.balance && balance && (
+        <div className="pointer-events-none absolute right-3 top-24 w-48 rounded bg-black/60 p-2 text-xs text-neutral-300">
+          <div className="mb-1 font-semibold text-sky-300">Balance</div>
+          <Row k="Left foot" v={STATE_LABEL[balance.feet.L]} />
+          <Row k="Right foot" v={STATE_LABEL[balance.feet.R]} />
+          {balance.weight && (
+            <div className="my-1">
+              <div className="flex justify-between text-neutral-400">
+                <span>L {Math.round(balance.weight.L * PERCENT)}%</span>
+                <span>R {Math.round(balance.weight.R * PERCENT)}%</span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded bg-neutral-700">
+                <div className="h-full bg-sky-400" style={{ width: `${balance.weight.L * PERCENT}%` }} />
+              </div>
+            </div>
+          )}
+          <Row k="CoM height" v={cm(balance.com[1])} />
+          {lean && <Row k="Lean" v={lean} />}
+          {balance.contacts.length > 0 && <Row k="Outside support" v={balance.outsideBy > 0 ? cm(balance.outsideBy) : 'no'} />}
+        </div>
+      )}
 
       {overlays.headUnits && (
         <div className="pointer-events-none absolute right-3 top-12 w-48 rounded bg-black/60 p-2 text-xs text-neutral-300">
@@ -84,6 +133,11 @@ export function ViewportHud() {
             </button>
           </div>
         )}
+        {balanceWarnings.map((w) => (
+          <div key={w} className="rounded bg-amber-900/85 px-2 py-1 text-amber-100">
+            {w}
+          </div>
+        ))}
         {warnings.map((w) => (
           <div key={w} className="rounded bg-red-950/80 px-2 py-1 text-red-200">
             {w}

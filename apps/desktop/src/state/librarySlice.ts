@@ -5,6 +5,7 @@ import type { LibrarySlice, Store } from './types'
 export const createLibrarySlice: StateCreator<Store, [], [], LibrarySlice> = (set, get) => ({
   customPresets: [],
   favoritePoses: [],
+  presetMeta: {},
   libraryLoaded: false,
 
   saveCustomPreset: (modifiedFromId) => {
@@ -17,12 +18,23 @@ export const createLibrarySlice: StateCreator<Store, [], [], LibrarySlice> = (se
     return id
   },
 
-  deleteCustomPreset: (id) => set((s) => ({ customPresets: s.customPresets.filter((p) => p.id !== id) })),
+  deleteCustomPreset: (id) =>
+    set((s) => {
+      const { [id]: _dropped, ...presetMeta } = s.presetMeta
+      return { customPresets: s.customPresets.filter((p) => p.id !== id), presetMeta }
+    }),
 
   toggleFavoritePose: (id) =>
     set((s) => ({
       favoritePoses: s.favoritePoses.includes(id) ? s.favoritePoses.filter((x) => x !== id) : [...s.favoritePoses, id],
     })),
 
-  setLibrary: (lib) => set({ customPresets: lib.customPresets, favoritePoses: lib.favoritePoses, libraryLoaded: true }),
+  setPresetTags: (id, tags) =>
+    set((s) => ({ presetMeta: { ...s.presetMeta, [id]: { notes: s.presetMeta[id]?.notes ?? '', tags: [...tags] } } })),
+
+  setPresetNotes: (id, notes) =>
+    set((s) => ({ presetMeta: { ...s.presetMeta, [id]: { tags: s.presetMeta[id]?.tags ?? [], notes } } })),
+
+  setLibrary: (lib) =>
+    set({ customPresets: lib.customPresets, favoritePoses: lib.favoritePoses, presetMeta: lib.presetMeta ?? {}, libraryLoaded: true }),
 })

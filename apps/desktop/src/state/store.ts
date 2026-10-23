@@ -9,6 +9,9 @@ import { createSketchSlice } from './sketchSlice'
 import type { Store } from './types'
 import { createUiSlice } from './uiSlice'
 import { createLibrarySlice } from './librarySlice'
+import { createVariantsSlice } from './variantsSlice'
+import { createClipboardSlice } from './clipboardSlice'
+import { createBalanceSlice } from './balanceSlice'
 
 /** Factory so tests get an isolated store. */
 export const createAppStore = () =>
@@ -22,6 +25,9 @@ export const createAppStore = () =>
     ...createExportSlice(...a),
     ...createUiSlice(...a),
     ...createLibrarySlice(...a),
+    ...createVariantsSlice(...a),
+    ...createClipboardSlice(...a),
+    ...createBalanceSlice(...a),
   }))
 
 export type AppStore = ReturnType<typeof createAppStore>

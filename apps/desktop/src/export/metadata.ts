@@ -1,6 +1,8 @@
 // State <-> SceneV1 (docs/metadata-schema.md). Pure functions: no store, no I/O.
 import {
   BODY_SLIDER_KEYS,
+  EXPORT_FRAMINGS,
+  EXPORT_PRESETS,
   MAX_VPS,
   HAND_SHAPES,
   JOINT_NAMES,
@@ -11,7 +13,11 @@ import {
   type BodyState,
   type CameraState,
   type ConfidenceLevel,
+  type ExportFraming,
+  type ExportPreset,
   type ExportSettings,
+  type SceneMeta,
+  type Variant,
   type JointName,
   type JointRotation,
   type PoseState,
@@ -20,8 +26,12 @@ import {
   type Vec2,
   type Vec3,
 } from '../types/scene'
-import { defaultBody, defaultCamera, defaultExport, defaultPose, defaultScene, defaultSketch } from '../state/defaults'
+import { defaultBody, defaultCamera, defaultExport, defaultMeta, defaultPose, defaultScene, defaultSketch } from '../state/defaults'
 import type { Doc } from '../state/types'
+import { computeBalance } from '../lib/balance'
+import { activeStylizeMatrix } from '../solve/fk'
+import { computeRig } from '../three/bodyRig'
+import { MAX_VARIANTS } from '../state/variantsSlice'
 
 export const APP_NAME = 'PoseLens' as const
 
@@ -33,24 +43,36 @@ export const exportHeightPx = (widthPx: number, aspect: number): number => Math.
 
 const clone = <T>(v: T): T => structuredClone(v)
 
+/** Balance of the saved body + pose (balance-spec), as written to the file. Derived; ignored on load. */
+export function balanceMeta(doc: Pick<Doc, 'body' | 'pose'>): BalanceMeta {
+  const b = computeBalance({
+    rig: computeRig(doc.body.sliders, doc.body.asymmetry),
+    pose: doc.pose,
+    sliders: doc.body.sliders,
+    stylize: activeStylizeMatrix(doc.body.stylizedOverride),
+  })
+  return { com: b.com, supportPolygon: b.supportPolygon, contacts: b.contacts.map((c) => `${c.side}:${c.part}`), warnings: b.warnings }
+}
+
 /** Builds the file object. scene.canvasRatio is the single source for both aspect fields. */
-export function toSceneV1(doc: Doc, exportSettings: ExportSettings, appVersion: string): SceneV1 {
+export function toSceneV1(doc: Doc, exportSettings: ExportSettings, appVersion: string, sceneName?: string): SceneV1 {
   const aspect = doc.scene.canvasRatio
   const widthPx = exportSettings.settings.widthPx
   return {
     schemaVersion: SCHEMA_VERSION,
     app: { name: APP_NAME, version: appVersion },
+    ...(sceneName !== undefined ? { name: sceneName } : {}),
     canvas: { aspect, widthPx, heightPx: exportHeightPx(widthPx, aspect) },
-    scene: { groundPlane: doc.scene.groundPlane, grid: doc.scene.grid, horizon: doc.scene.horizon },
+    scene: { groundPlane: doc.scene.groundPlane, grid: doc.scene.grid, horizon: doc.scene.horizon, groundShadow: doc.scene.groundShadow },
     body: clone(doc.body),
     pose: clone(doc.pose),
     camera: { ...clone(doc.camera), aspect },
     sketch: clone(doc.sketch),
-    balance: emptyBalance(),
-    variants: [],
+    balance: balanceMeta(doc),
+    variants: clone(doc.variants),
     export: clone(exportSettings),
-    tags: [],
-    notes: '',
+    tags: [...doc.meta.tags],
+    notes: doc.meta.notes,
   }
 }
 
@@ -183,18 +205,45 @@ function readSketch(v: unknown): SketchMeta {
   }
 }
 
+const oneOf = <T extends string>(v: unknown, options: readonly T[], fallback: T): T =>
+  typeof v === 'string' && (options as readonly string[]).includes(v) ? (v as T) : fallback
+
 function readExport(v: unknown): ExportSettings {
   const d = defaultExport()
   const e = obj(v)
+  const o = obj(e['settings'])
   return {
-    preset: str(e['preset'], d.preset),
+    preset: oneOf<ExportPreset>(e['preset'], EXPORT_PRESETS, d.preset),
     namingTemplate: str(e['namingTemplate'], d.namingTemplate),
-    settings: { ...obj(e['settings']), widthPx: num(obj(e['settings'])['widthPx'], d.settings.widthPx) },
+    settings: {
+      widthPx: num(o['widthPx'], d.settings.widthPx),
+      grid: bool(o['grid'], d.settings.grid),
+      shadow: bool(o['shadow'], d.settings.shadow),
+      framing: oneOf<ExportFraming>(o['framing'], EXPORT_FRAMINGS, d.settings.framing),
+      fixedWidthPx: num(o['fixedWidthPx'], d.settings.fixedWidthPx),
+      fixedHeightPx: num(o['fixedHeightPx'], d.settings.fixedHeightPx),
+      boundsMargin: num(o['boundsMargin'], d.settings.boundsMargin),
+    },
   }
 }
 
-/** Parses a scene.json or export.json. Missing fields fall back to defaults; canvas.aspect wins. */
-export function fromSceneV1(raw: unknown): { doc: Doc; exportSettings: ExportSettings } {
+function readVariants(v: unknown): Variant[] {
+  if (!Array.isArray(v)) return []
+  const seen = new Set<string>()
+  return v.filter(isObj).flatMap((x, i) => {
+    const id = typeof x['id'] === 'string' && !seen.has(x['id']) ? x['id'] : `v-loaded-${i}`
+    seen.add(id)
+    return [{ id, name: str(x['name'], `Shot ${i + 1}`), camera: readCamera(x['camera']), pose: readPose(x['pose']) }]
+  }).slice(0, MAX_VARIANTS)
+}
+
+function readMeta(file: Obj): SceneMeta {
+  const d = defaultMeta()
+  return { tags: strArray(file['tags']), notes: str(file['notes'], d.notes) }
+}
+
+/** Parses a scene.json or export sidecar. Missing fields fall back to defaults; canvas.aspect wins. */
+export function fromSceneV1(raw: unknown): { doc: Doc; exportSettings: ExportSettings; name: string | null } {
   const file = migrate(raw)
   const ds = defaultScene()
   const canvas = obj(file['canvas'])
@@ -210,12 +259,16 @@ export function fromSceneV1(raw: unknown): { doc: Doc; exportSettings: ExportSet
         groundPlane: bool(scene['groundPlane'], ds.groundPlane),
         grid: bool(scene['grid'], ds.grid),
         horizon: bool(scene['horizon'], ds.horizon),
+        groundShadow: bool(scene['groundShadow'], ds.groundShadow),
       },
       body: readBody(file['body']),
       pose: readPose(file['pose']),
       camera: readCamera(file['camera']),
       sketch: readSketch(file['sketch']),
+      variants: readVariants(file['variants']),
+      meta: readMeta(file),
     },
     exportSettings,
+    name: typeof file['name'] === 'string' && file['name'].trim() ? file['name'] : null,
   }
 }

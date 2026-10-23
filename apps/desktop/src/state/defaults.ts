@@ -7,6 +7,7 @@ import {
   type JointName,
   type JointRotation,
   type PoseState,
+  type SceneMeta,
   type SceneSettings,
   type Side,
   type SketchMeta,
@@ -26,6 +27,7 @@ export const defaultScene = (): SceneSettings => ({
   groundPlane: true,
   grid: true,
   horizon: true,
+  groundShadow: false,
 })
 
 export const defaultBody = (): BodyState => {
@@ -61,11 +63,27 @@ export const defaultCamera = (): CameraState => ({
   preset: CUSTOM_CAMERA_PRESET,
 })
 
+/** Fixed-canvas framing starts at an A-series portrait page at 300 dpi-ish proportions. */
+export const DEFAULT_FIXED_CANVAS_PX = { width: 2480, height: 3508 }
+/** Bounds framing: 8% of the figure's larger side around it. */
+export const DEFAULT_BOUNDS_MARGIN = 0.08
+export const DEFAULT_NAMING_TEMPLATE = '{scene}'
+
 export const defaultExport = (): ExportSettings => ({
   preset: 'clean',
-  namingTemplate: '{scene}',
-  settings: { widthPx: DEFAULT_EXPORT_WIDTH_PX },
+  namingTemplate: DEFAULT_NAMING_TEMPLATE,
+  settings: {
+    widthPx: DEFAULT_EXPORT_WIDTH_PX,
+    grid: false,
+    shadow: false,
+    framing: 'viewport',
+    fixedWidthPx: DEFAULT_FIXED_CANVAS_PX.width,
+    fixedHeightPx: DEFAULT_FIXED_CANVAS_PX.height,
+    boundsMargin: DEFAULT_BOUNDS_MARGIN,
+  },
 })
+
+export const defaultMeta = (): SceneMeta => ({ tags: [], notes: '' })
 
 export const defaultSketch = (): SketchMeta => ({
   hash: null,

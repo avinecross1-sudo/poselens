@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "app": { "name": "PoseLens", "version": "0.1.0" },
+  "name": "Off balance",
+  "pose": {
+    "joints": {
+      "spine": { "rx": -0.7, "ry": 0, "rz": 0 },
+      "chest": { "rx": -0.4, "ry": 0, "rz": 0 }
+    }
+  }
+}

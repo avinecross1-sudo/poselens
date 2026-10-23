@@ -5,6 +5,7 @@ import { LeftPanel } from './panels/LeftPanel'
 import { RightPanel } from './panels/RightPanel'
 import { appStore } from './state/store'
 import { startLibraryPersistence } from './state/libraryPersistence'
+import { startBalanceSync } from './state/balanceSlice'
 import { Viewport } from './three/Viewport'
 
 const isTyping = (t: EventTarget | null): boolean =>
@@ -14,6 +15,7 @@ export function App() {
   const [status, setStatus] = useState<FileResult | null>(null)
 
   useEffect(() => startLibraryPersistence(appStore), [])
+  useEffect(() => startBalanceSync(appStore), [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

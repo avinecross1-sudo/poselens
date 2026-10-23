@@ -3,12 +3,14 @@ export function PresetCard({
   height,
   active,
   modified,
+  tags,
   onClick,
 }: {
   name: string
   height: number
   active: boolean
   modified: boolean
+  tags?: readonly string[]
   onClick: () => void
 }) {
   return (
@@ -24,6 +26,7 @@ export function PresetCard({
         {active && modified && <span className="ml-1 text-amber-400">*</span>}
       </div>
       <div className="text-neutral-500">{height.toFixed(2)} m</div>
+      {tags && tags.length > 0 && <div className="truncate text-[10px] text-sky-300/80">{tags.join(' · ')}</div>}
     </button>
   )
 }

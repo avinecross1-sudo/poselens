@@ -9,6 +9,7 @@ export const IPC = {
   librarySave: 'library:save',
   sketchImport: 'sketch:import',
   sketchRead: 'sketch:read',
+  exportReimport: 'export:reimport',
 } as const
 
 export type Canceled = { canceled: true }
@@ -26,8 +27,13 @@ export interface ExportWriteRequest {
   png: Uint8Array
   scene: SceneV1
   sceneName: string
+  /** File base name from the naming template; main replaces {n} with the first free number. */
+  fileBase: string
 }
-export type ExportWriteResult = { dir: string } | Canceled
+export type ExportWriteResult = { dir: string; file: string } | Canceled
+
+/** A re-imported export: the sidecar JSON next to the PNG, or the copy embedded in the PNG when the sidecar is gone. */
+export type ReimportResult = { scene: unknown; path: string; source: 'sidecar' | 'embedded' } | Canceled
 
 export interface AppInfo {
   version: string
@@ -38,6 +44,8 @@ export interface UserLibraryFile {
   version: 1
   customPresets: { id: string; name: string; sliders: Record<string, number>; modifiedFrom?: string }[]
   favoritePoses: string[]
+  /** Tags and notes per body preset id (Phase 4; missing in older files). */
+  presetMeta?: Record<string, { tags: string[]; notes: string }>
 }
 
 /** A sketch image read by main. hash is 'sha256:<hex>' of the file bytes. */
@@ -61,4 +69,6 @@ export interface PoseLensApi {
   importSketch(): Promise<SketchImportResult>
   /** Re-reads a previously imported sketch; null when the file is gone or is not a PNG/JPG. */
   readSketch(path: string): Promise<SketchFileData | null>
+  /** Opens a PNG (or sidecar JSON) picker and returns the scene saved with that export. */
+  reimportExport(): Promise<ReimportResult>
 }

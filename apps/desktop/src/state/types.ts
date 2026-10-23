@@ -6,18 +6,25 @@ import type {
 
   BodyState,
   CameraState,
+  ClipboardState,
+  ExportFraming,
+  ExportOptions,
+  ExportPreset,
   ExportSettings,
   HandShape,
   JointName,
   JointRotation,
   PoseState,
   RootTransform,
+  SceneMeta,
   SceneSettings,
   Side,
   SketchMeta,
+  Variant,
   Vec2,
   Vec3,
 } from '../types/scene'
+import type { BalanceResult } from '../lib/balance'
 import type { SolveResult } from '../solve/cameraSolve'
 import type { DepthHint, LandmarkId } from '../solve/landmarks'
 import type { NudgeJoint } from '../solve/depthNudge'
@@ -32,6 +39,10 @@ export interface Doc {
   pose: PoseState
   camera: CameraState
   sketch: SketchMeta
+  /** Named camera + pose snapshots (2–4). */
+  variants: Variant[]
+  /** Scene tags and notes. */
+  meta: SceneMeta
 }
 export type DocKey = keyof Doc
 
@@ -68,7 +79,12 @@ export interface HistorySlice {
 export interface SceneSlice {
   scene: SceneSettings
   setCanvasRatio: (ratio: number) => void
-  setSceneFlag: (key: 'groundPlane' | 'grid' | 'horizon', value: boolean) => void
+  setSceneFlag: (key: 'groundPlane' | 'grid' | 'horizon' | 'groundShadow', value: boolean) => void
+  meta: SceneMeta
+  /** Adds a tag (trimmed, case-insensitively unique). */
+  addSceneTag: (tag: string) => void
+  removeSceneTag: (tag: string) => void
+  setSceneNotes: (notes: string, opts?: EditOpts) => void
 }
 
 export interface BodySlice {
@@ -132,6 +148,50 @@ export interface ExportSlice {
   sceneName: string
   setExportWidth: (px: number) => void
   setSceneName: (name: string) => void
+  setExportPreset: (preset: ExportPreset) => void
+  setExportFraming: (framing: ExportFraming) => void
+  /** Grid / shadow switches, fixed canvas size and bounds margin (sizes are clamped). */
+  setExportOptions: (opts: Partial<Omit<ExportOptions, 'widthPx' | 'framing'>>) => void
+  setNamingTemplate: (template: string) => void
+}
+
+/** Named camera + pose snapshots. The list lives in the document (undoable, saved); at most MAX_VARIANTS. */
+export interface VariantsSlice {
+  variants: Variant[]
+  /** Variant last saved or applied, for {variant} in the naming template. Not saved. */
+  activeVariantId: string | null
+  /** Snapshots the current camera and pose. Returns the new id, or null when the list is full. */
+  addVariant: (name?: string) => string | null
+  /** Overwrites a variant with the current camera and pose. */
+  updateVariant: (id: string) => void
+  /** Restores the variant's camera and pose exactly as saved (camera skipped under trace lock). */
+  applyVariant: (id: string) => void
+  renameVariant: (id: string, name: string) => void
+  deleteVariant: (id: string) => void
+  /** Copy of a variant under "<name> copy". Null when the list is full. */
+  duplicateVariant: (id: string) => string | null
+  /** Starts a new, unsaved scene from this one: same document under "<name> copy", fresh undo history. */
+  duplicateScene: () => void
+}
+
+export interface ClipboardSlice {
+  /** Survives loading another scene; not saved. */
+  clipboard: ClipboardState
+  copyCamera: () => void
+  copyBody: () => void
+  copyPose: () => void
+  /** False while trace lock freezes the camera or when nothing is copied. */
+  pasteCamera: () => boolean
+  /** Pastes the body profile (unlocked sliders, asymmetry, override) and retargets the current pose onto it. */
+  pasteBody: () => boolean
+  /** Pastes the pose, retargeted from the body it was copied from onto this one. Locked joints keep their values. */
+  pastePose: () => boolean
+}
+
+/** Ground contact, support polygon and CoM for the current body + pose (docs/balance-spec.md). Derived, not saved. */
+export interface BalanceSlice {
+  balance: BalanceResult | null
+  setBalance: (b: BalanceResult | null) => void
 }
 
 export type ActiveCamera = 'editor' | 'shot'
@@ -142,9 +202,21 @@ export interface Overlays {
   ikHandles: boolean
   /** Pose-solve confidence colours on the mannequin. */
   confidence: boolean
+  /** CoM, plumb line, support polygon, contacts and lean arrow. */
+  balance: boolean
+  /** Background shapes enclosed by the figure, tinted. */
+  negativeSpace: boolean
+  /** Parts of the figure hidden behind other parts, shown through them. */
+  occlusion: boolean
+  /** Lens stretch rings in the shot view when the focal length is wide (< 24 mm). */
+  lensGuide: boolean
 }
 
 export type FigureStyle = 'mannequin' | 'anatomy'
+
+/** Viewport readability looks. normal = the figure as drawn; the others replace its materials. */
+export const VIEW_LOOKS = ['normal', 'silhouette', 'values', 'depth'] as const
+export type ViewLook = (typeof VIEW_LOOKS)[number]
 
 export interface UiSlice {
   activeCamera: ActiveCamera
@@ -169,6 +241,9 @@ export interface UiSlice {
   /** How the figure is drawn: grey mannequin or colour-coded muscle forms. Applies to the viewport and PNG export. */
   figureStyle: FigureStyle
   setFigureStyle: (s: FigureStyle) => void
+  /** Readability look in the viewport. Not saved; export uses its own preset. */
+  viewLook: ViewLook
+  setViewLook: (l: ViewLook) => void
   /** Depth-nudge ghost: the limb as it would be (hovering a handle) or as it was (while dragging). Not saved. */
   nudgeGhost: NudgeGhost | null
   setActiveCamera: (c: ActiveCamera) => void
@@ -197,13 +272,17 @@ export interface NudgeGhost {
 export interface LibrarySlice {
   customPresets: BodyPreset[]
   favoritePoses: string[]
+  /** Tags and notes per body preset id (seed or custom). */
+  presetMeta: Record<string, SceneMeta>
   /** False until the saved library has been read; persistence waits for it. */
   libraryLoaded: boolean
   /** Saves the current body as "Modified from [X]"; returns the new preset id. */
   saveCustomPreset: (modifiedFromId: string) => string
   deleteCustomPreset: (id: string) => void
   toggleFavoritePose: (id: string) => void
-  setLibrary: (lib: { customPresets: BodyPreset[]; favoritePoses: string[] }) => void
+  setPresetTags: (id: string, tags: string[]) => void
+  setPresetNotes: (id: string, notes: string) => void
+  setLibrary: (lib: { customPresets: BodyPreset[]; favoritePoses: string[]; presetMeta?: Record<string, SceneMeta> }) => void
 }
 
 export interface SketchImage {
@@ -279,5 +358,16 @@ export interface SketchSlice {
   bakeSolve: () => boolean
 }
 
-export type Store = HistorySlice & SketchSlice & SceneSlice & BodySlice & PoseSlice & CameraSlice & ExportSlice & UiSlice & LibrarySlice
+export type Store = HistorySlice &
+  SketchSlice &
+  SceneSlice &
+  BodySlice &
+  PoseSlice &
+  CameraSlice &
+  ExportSlice &
+  UiSlice &
+  LibrarySlice &
+  VariantsSlice &
+  ClipboardSlice &
+  BalanceSlice
 
